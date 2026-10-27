@@ -6,3 +6,4 @@ misc_docs/
 logs/
 .venv/
 __pycache__/
+.pytest_cache/

@@ -1,0 +1,8 @@
+{
+  "backend": "crochetparade",
+  "crochetparade": {
+    "repo_path_env": "CROCHETPARADE_PATH",
+    "node": "node",
+    "timeout_s": 30
+  }
+}

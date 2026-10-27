@@ -106,6 +106,11 @@ class CrochetEngine(Engine):
 
         return describe_code(code)
 
+    def encode(self, spec) -> str:
+        from .encode import encode
+
+        return encode(spec)
+
     def render(self, code: str, out_dir) -> dict:
         from .render import render_code
 

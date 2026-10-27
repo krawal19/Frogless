@@ -71,6 +71,10 @@ class Engine(ABC):
         """Turn engine code back into plain English, one sentence per code line."""
 
     @abstractmethod
+    def encode(self, spec) -> str:
+        """Turn an engine-neutral pattern spec (frogless.testset.spec.Spec) into engine code."""
+
+    @abstractmethod
     def render(self, code: str, out_dir) -> dict:
         """Draw the pattern to images in out_dir.
 

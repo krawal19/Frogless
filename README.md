@@ -61,3 +61,20 @@ python -m scripts.hello    # one Muse Spark call, under 1 cent
 python -m scripts.hello_sam  # one SAM 3.1 call, $0.0025
 ```
 Every model call is logged with its cost to `logs/model_calls.jsonl`.
+
+## Testing
+
+### Known-answer test bench
+```sh
+python -m scripts.run_testset
+```
+Generates circles, balls and flat pieces whose correct stitch counts are known by arithmetic, plus copies with planted mistakes (wrong count, missing round, impossible increase). Each case runs two ways, from engine code and from written English, and is scored PASS / FAIL / UNREADABLE. Settings are in `config/testset.json`. No model calls.
+
+### Testing on real patterns
+We also test on real crochet patterns that are freely available online. They belong to their designers, so we don't redistribute them: they live in a local `external_patterns/` folder that is gitignored. Results are reported as totals only.
+
+To try your own, put each pattern in a plain `.txt` file in any folder and run:
+```sh
+python -m scripts.run_testset --patterns path/to/folder
+python -m scripts.run_testset --patterns path/to/folder --summary-only   # totals only
+```

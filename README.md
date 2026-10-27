@@ -36,6 +36,13 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
+### 3b. Visual rendering (optional)
+Only needed to draw 3D models and charts of patterns (`python -m scripts.render_samples`). Tests do not need it.
+```sh
+python -m playwright install chromium
+```
+Output goes to `logs/renders/index.html`.
+
 ### 4. Create `.env`
 Copy the template and fill in both values:
 ```sh

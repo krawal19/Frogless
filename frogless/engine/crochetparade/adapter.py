@@ -18,6 +18,7 @@ from ..base import (
 
 BRIDGE = Path(__file__).with_name("bridge.js")
 NOTATION_GUIDE = Path(__file__).with_name("notation_guide.md")
+VISUAL_SAMPLES = Path(__file__).with_name("visual_samples_synthetic.json")
 # Stitch types that are anchors, not counted as stitches.
 NOT_STITCHES = {"ring", "tie_up", "start_at", "start_anew", "start_a_new_chain"}
 # Slip stitches (round joins) and chains do not follow the normal count rules.
@@ -104,6 +105,19 @@ class CrochetEngine(Engine):
         from .describe import describe_code
 
         return describe_code(code)
+
+    def render(self, code: str, out_dir) -> dict:
+        from .render import render_code
+
+        return render_code(self.repo, code, out_dir)
+
+    def render_many(self, items, out_dir) -> list[dict]:
+        from .render import render_many
+
+        return render_many(self.repo, items, out_dir)
+
+    def visual_samples(self) -> list[dict]:
+        return json.loads(VISUAL_SAMPLES.read_text(encoding="utf-8"))
 
     def notation_guide(self) -> str:
         return NOTATION_GUIDE.read_text(encoding="utf-8")

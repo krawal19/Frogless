@@ -1,0 +1,8 @@
+plan.md
+todo.md
+private_tests/
+.env
+misc_docs/
+logs/
+.venv/
+__pycache__/

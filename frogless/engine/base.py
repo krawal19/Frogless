@@ -65,3 +65,11 @@ class Engine(ABC):
     @abstractmethod
     def stitches(self) -> list[str]:
         """Stitch names the translator knows."""
+
+    @abstractmethod
+    def describe(self, code: str) -> list[str]:
+        """Turn engine code back into plain English, one sentence per code line."""
+
+    @abstractmethod
+    def notation_guide(self) -> str:
+        """Prompt text teaching a model to write this engine's code."""

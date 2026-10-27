@@ -17,6 +17,7 @@ from ..base import (
 )
 
 BRIDGE = Path(__file__).with_name("bridge.js")
+NOTATION_GUIDE = Path(__file__).with_name("notation_guide.md")
 # Stitch types that are anchors, not counted as stitches.
 NOT_STITCHES = {"ring", "tie_up", "start_at", "start_anew", "start_a_new_chain"}
 # Slip stitches (round joins) and chains do not follow the normal count rules.
@@ -98,6 +99,14 @@ class CrochetEngine(Engine):
         from crochetparade_translator.ir import parser
 
         return sorted(parser._load_known_stitches(parser.IRParseConfig()))
+
+    def describe(self, code: str) -> list[str]:
+        from .describe import describe_code
+
+        return describe_code(code)
+
+    def notation_guide(self) -> str:
+        return NOTATION_GUIDE.read_text(encoding="utf-8")
 
 
 def create_engine(cfg) -> Engine:

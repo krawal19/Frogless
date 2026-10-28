@@ -126,3 +126,9 @@ def user_message(report: PatternReport) -> str:
         detail = re.sub(r"^(rows?|rounds?)\s+\d+:\s*", "", v.message, flags=re.IGNORECASE).rstrip(".")
         return f"❌ Breaks at {word} {v.row}: {detail}."
     return _unreadable(report, v, word)
+
+
+def shape_lines(report: PatternReport) -> list[str]:
+    """Shape hints for the person following the pattern, one line each. Kept apart from
+    user_message so the verdict line stays clean; the hints never change the verdict."""
+    return [f"{'⚠' if f.severity == 'warning' else 'ℹ'} {f.message}" for f in report.shape]

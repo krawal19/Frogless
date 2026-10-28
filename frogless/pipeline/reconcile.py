@@ -37,8 +37,14 @@ ANSWER_SCHEMA = {
 }
 
 
-def _counts_made(engine: Engine, rows: list[RowResult], i: int, code: str) -> tuple[int, dict[str, list[int]]] | None:
-    """(stated count, counts row i's `code` may make per reading), or None when there is nothing to compare."""
+def _counts_made(engine: Engine, rows: list[RowResult], i: int, code: str,
+                 clean: bool = False) -> tuple[int, dict[str, list[int]]] | None:
+    """(stated count, counts row i's `code` may make per reading), or None when there is nothing to compare.
+
+    A stitch-count error (e.g. stitches worked past the end of the row below) still gives counts:
+    that is exactly when another reading is worth trying. With clean=True the code must check with
+    no error at all (used for the new reading).
+    """
     row = rows[i]
     if row.synthetic or row.status != "ok" or not row.code:
         return None
@@ -49,7 +55,7 @@ def _counts_made(engine: Engine, rows: list[RowResult], i: int, code: str) -> tu
         return None  # a hole before this row: counts past it cannot be trusted
     prefix = [r.code for r in rows[:i] if r.code] + [code]
     check = engine.check("\n".join(prefix))
-    if not check.ok or not check.rows:
+    if not check.rows or (not check.ok and (clean or check.error.kind == "invalid")):
         return None
     info = check.rows[-1]
     if info.index < 1:
@@ -97,7 +103,7 @@ def reconcile_counts(engine: Engine, text: str, rows: list[RowResult], cache_dir
         total += cost
         if not code or code == rows[i].code or code.startswith("# CANNOT"):
             continue
-        again = _counts_made(engine, rows, i, code)
+        again = _counts_made(engine, rows, i, code, clean=True)
         if again is None or not _fits(stated, again[1], any_reading=False):
             continue
         trial = replace(rows[i], code=code, origin="model")

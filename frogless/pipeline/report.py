@@ -63,6 +63,7 @@ class PatternReport:
     computed: dict[int, int] = field(default_factory=dict)  # row number -> count the engine makes
     cost_usd: float = 0.0  # model spend for this check
     notes: list[str] = field(default_factory=list)  # anything else worth telling the user
+    shape: list = field(default_factory=list)  # ShapeFinding hints about the finished piece; never change the verdict
 
     @property
     def code(self) -> str:

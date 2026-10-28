@@ -40,6 +40,7 @@ function check(code) {
     ids: s.id,             // ids of the loops this stitch creates
     attach: s.id_attach,   // ids of the earlier loops it is worked into
     explicit: s.attach_ref !== null && s.attach_ref !== undefined, // has an @label
+    labels: s.label || [], // names the pattern gave this stitch (e.g. "ch.A")
   }));
   return { ok: true, error: null, warnings, stitches };
 }

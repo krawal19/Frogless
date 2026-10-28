@@ -9,6 +9,7 @@ from .base import (
     CheckResult,
     Engine,
     RowInfo,
+    StitchInfo,
     TranslateLine,
     TranslateResult,
 )
@@ -21,6 +22,7 @@ __all__ = [
     "CheckResult",
     "Engine",
     "RowInfo",
+    "StitchInfo",
     "TranslateLine",
     "TranslateResult",
     "get_engine",

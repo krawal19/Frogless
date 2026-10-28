@@ -4,6 +4,7 @@ from ..engine import Engine, get_engine
 from .faithful import check_faithfulness
 from .reconcile import reconcile_counts
 from .report import PatternReport
+from .shape import check_shape, meant_flat, starts_from_ring
 from .translate import rule_rows, translate_flagged
 from .verdict import decide_verdict
 
@@ -26,4 +27,6 @@ def check_pattern(text: str, *, engine: Engine | None = None, use_model: bool = 
     report = PatternReport(text=text, rows=rows, cost_usd=cost)
     report.check = engine.check(report.code) if report.code else None
     report.verdict, report.stated, report.computed = decide_verdict(engine, text, rows, report.check)
+    if report.check:  # hints about the finished piece; they never change the verdict
+        report.shape = check_shape(report.check.rows, from_ring=starts_from_ring(text), flat=meant_flat(text))
     return report

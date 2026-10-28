@@ -13,12 +13,23 @@ class CheckError:
 
 
 @dataclass
+class StitchInfo:
+    """One stitch of a row, as a node of the stitch graph."""
+
+    position: int  # 0-based place in its row, in working order
+    kind: str  # e.g. "sc", "dc2inc", "ch", "ss"
+    into: list[tuple[int, int]] = field(default_factory=list)  # (row index, position) it is worked into
+    label: str = ""  # name the pattern gave this stitch or space, if any
+
+
+@dataclass
 class RowInfo:
     index: int  # row/round number; with a magic ring, 1 = first round
     stitch_count: int  # stitches made in this row
     stitch_types: dict[str, int] = field(default_factory=dict)  # e.g. {"sc": 6}
     unworked: int = 0  # stitches of the previous row this row never works into
     overflow: int = 0  # stitches worked past the end of the previous row
+    stitches: list[StitchInfo] = field(default_factory=list)  # the row's stitches, when the engine provides them
 
 
 @dataclass

@@ -15,3 +15,16 @@ def test_unreadable_row_without_a_model():
     report = check_pattern(CIRCLE + "\nRound 3: *sc, inc; rep from * around (18)", use_model=False)
     assert report.verdict.kind == "unreadable"
     assert any(r.status == "flagged" for r in report.rows)
+
+
+def test_shape_hints_are_reported_apart_from_the_verdict():
+    from frogless.pipeline.messages import shape_lines, user_message
+
+    ring = "Round 1: 6 sc in a magic ring (6)\nRound 2: inc in each st around (12)\nRound 3: 12 sc (12)"
+    report = check_pattern(ring, use_model=False)
+    assert report.verdict.kind == "works"
+    assert report.shape and all(f.message in " ".join(shape_lines(report)) for f in report.shape)
+    assert "cup" not in user_message(report) and "tube" not in user_message(report)
+    # no ring in the text: no circle hints
+    assert not any(f.kind in {"flat_circle", "cups"} for f in check_pattern(
+        ring.replace("magic ring", "row"), use_model=False).shape)

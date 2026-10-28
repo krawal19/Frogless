@@ -11,7 +11,7 @@ import sys
 from pathlib import Path
 
 from frogless.pipeline.check import check_pattern
-from frogless.pipeline.messages import user_message
+from frogless.pipeline.messages import shape_lines, user_message
 
 
 def format_report(report) -> str:
@@ -38,6 +38,10 @@ def format_report(report) -> str:
             lines.append(f"  {n}: {report.stated.get(n, '-')} / {report.computed.get(n, '-')}")
     for note in report.notes:
         lines.append(f"Note: {note}")
+    if report.shape:
+        lines.append("")
+        lines.append("Shape hints:")
+        lines += [f"  {line}" for line in shape_lines(report)]
     lines.append("")
     lines.append(f"Cost: ${report.cost_usd:.4f}")
     return "\n".join(lines)

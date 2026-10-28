@@ -2,8 +2,12 @@
 
 One sentence per code line (blank lines and # comments are skipped). The wording is
 literal, not prettified: the faithfulness check compares it with the original pattern,
-and the same wording is what the rules translator reads back in (see
-tests/test_describe.py for the round trip).
+and the same wording is what the rules translator reads back in for the plain constructs
+(see tests/test_describe.py for the round trip).
+
+Covered: plain, increase, decrease, loop-only, post, bobble/popcorn/puff, reverse sc and
+picot stitches; chains, skips, turns, foundation rows; magic-ring rounds; labels (.A) and
+attachments (@A, @R0, @[@], @1L); groups worked into one place; the partial-repeat marker.
 
 Anything this module cannot describe comes back as "UNSUPPORTED: <raw code>" instead of
 a guess.
@@ -14,11 +18,19 @@ and the English templates below are the parts written here.
 """
 
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 BASE_STITCHES = {"sc", "hdc", "dc", "tr", "dtr", "trtr"}
-_NAME_RE = re.compile(r"(?P<name>[A-Za-z_]+?)(?:(?P<k>\d+)(?P<kind>inc|tog))?(?![A-Za-z0-9_])")
+_WORDS = {"ch", "sk", "turn", "ring", "tie_up"}
+_TOKEN_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+_STITCH_RE = re.compile(
+    r"(?P<post>fp|bp)?(?P<base>trtr|dtr|tr|hdc|dc|sc|ss|rsc)(?P<loop>bl|fl)?"
+    r"(?:(?P<k>\d+)(?P<kind>inc|tog))?"
+)
+_SPECIAL_RE = re.compile(r"(?:(?P<base>hdc|dc|tr)(?P<k>\d+)(?P<kind>bobble|pc|puff)|picot(?P<pk>\d+))")
 _LABEL_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*(?:\[[^\]]*\])?")
+_HEAD_RE = re.compile(r"(\d+)([A-Za-z_][A-Za-z0-9_]*(?:\[[^\]]*\])?)")
+_KIND_NAMES = {"bobble": "bobble", "pc": "popcorn", "puff": "puff"}
 
 
 class _Unsupported(Exception):
@@ -27,24 +39,62 @@ class _Unsupported(Exception):
 
 @dataclass
 class Atom:
-    name: str  # base stitch or word: sc, ch, ss, sk, turn, tie_up, ring ...
+    name: str  # base stitch or word: sc, ch, ss, sk, turn, ring, picot ...
     n: int = 1  # how many in a row
-    kind: str = ""  # "", "inc" or "tog"
-    k: int = 0  # stitches in the inc/tog
+    kind: str = ""  # "", "inc", "tog", "bobble", "pc" or "puff"
+    k: int = 0  # stitches in the inc/tog/bobble, chains in the picot
     labels: list[str] = field(default_factory=list)  # .A
     attach: str = ""  # raw text after @
+    post: str = ""  # "fp" or "bp"
+    loop: str = ""  # "bl" or "fl"
 
 
 @dataclass
 class Group:
-    items: list  # Atom | Group
+    items: list  # Atom | Group | Marker
     times: int = 1
     repeated: bool = False  # written as n*[...]
     labels: list[str] = field(default_factory=list)
     attach: str = ""
 
 
+@dataclass
+class Marker:
+    kind: str  # ">" last repeat stops here, "<" first repeat starts here
+
+
+@dataclass
+class _Ctx:
+    reg: dict  # label -> (kind, size), kind is "st", "space" or "group"
+    bare: bool = False  # inside a group worked into one place: no "in next st"
+    unit: str = "st"  # "ch" on the row worked along a foundation chain
+
+
 # ---------------------------------------------------------------- parsing
+def _make_atom(token, n):
+    if token in _WORDS:
+        return Atom(token, n)
+    m = _SPECIAL_RE.fullmatch(token)
+    if m:
+        if m.group("pk"):
+            if int(m.group("pk")) < 1:
+                raise _Unsupported("picot")
+            return Atom("picot", n, k=int(m.group("pk")))
+        if int(m.group("k")) < 2:
+            raise _Unsupported("bobble size")
+        return Atom(m.group("base"), n, kind=m.group("kind"), k=int(m.group("k")))
+    m = _STITCH_RE.fullmatch(token)
+    if not m:
+        raise _Unsupported(f"stitch {token}")
+    post, base, loop = m.group("post") or "", m.group("base"), m.group("loop") or ""
+    kind, k = m.group("kind") or "", int(m.group("k") or 0)
+    if post and (loop or base not in BASE_STITCHES):
+        raise _Unsupported("post stitch")
+    if kind and (base not in BASE_STITCHES or k < 2):
+        raise _Unsupported("inc/tog")
+    return Atom(base, n, kind=kind, k=k, post=post, loop=loop)
+
+
 class _Parser:
     def __init__(self, text):
         self.s = text
@@ -79,7 +129,7 @@ class _Parser:
         n = self.number()
         if self.peek() == "*":  # n*[...] or n*(...)
             self.i += 1
-            if n is None or self.peek() not in "([":
+            if n is None or self.peek() not in ("(", "["):
                 raise _Unsupported("repeat")
             g = self.group()
             g.times, g.repeated = n, True
@@ -88,16 +138,17 @@ class _Parser:
             if n is not None:
                 raise _Unsupported("count before group")
             return self.group()
-        m = _NAME_RE.match(self.s, self.i)
-        if not m or not m.group("name"):
+        if self.peek() in ("<", ">"):
+            if n is not None:
+                raise _Unsupported("count before marker")
+            c = self.peek()
+            self.i += 1
+            return Marker(c)
+        m = _TOKEN_RE.match(self.s, self.i)
+        if not m:
             raise _Unsupported(f"stitch at {start}")
         self.i = m.end()
-        atom = Atom(
-            name=m.group("name"),
-            n=1 if n is None else n,
-            kind=m.group("kind") or "",
-            k=int(m.group("k") or 0),
-        )
+        atom = _make_atom(m.group(), 1 if n is None else n)
         atom.labels, atom.attach = self.modifiers()
         return atom
 
@@ -135,7 +186,7 @@ class _Parser:
                 raise _Unsupported("unbalanced attachment")
             text, self.i = self.s[self.i : j], j
             return text
-        m = _LABEL_RE.match(self.s, self.i)
+        m = _HEAD_RE.match(self.s, self.i) or _LABEL_RE.match(self.s, self.i)
         if not m:
             raise _Unsupported("attachment")
         self.i = m.end()
@@ -150,88 +201,220 @@ def _parse_line(line):
     return items
 
 
+def _register(items, reg):
+    """Remember what each label marks (a stitch, a chain space or a group)."""
+    for it in items:
+        if isinstance(it, Atom):
+            for lab in it.labels:
+                reg[lab] = ("space" if it.name == "ch" else "st", it.n)
+        elif isinstance(it, Group):
+            _register(it.items, reg)
+            for lab in it.labels:
+                reg[lab] = ("group", 1)
+
+
 # ---------------------------------------------------------------- English
-def _sts(n):
+def _sts(n, unit="st"):
+    if unit == "ch":
+        return "next ch" if n == 1 else f"next {n} ch"
     return "next st" if n == 1 else f"next {n} sts"
 
 
-def _atom_text(a: Atom):
+def _place(attach, ctx, n=1):
+    """Where an attachment points: (text, each). each=True means one stitch per marked st."""
+    if attach == "R0":
+        return "magic ring", False
+    if attach == "[@]":
+        return "the same st", False
+    head = _HEAD_RE.fullmatch(attach)
+    if head:
+        if head.group(1) != "1":
+            raise _Unsupported("attachment head")
+        kind = ctx.reg.get(head.group(2), ("?", 1))[0]
+        what = {"space": "space", "st": "st"}.get(kind, "st/space")
+        return f"marked {what} {head.group(2)} (second attachment head, worked back along it)", False
+    if _LABEL_RE.fullmatch(attach):
+        kind, size = ctx.reg.get(attach, ("?", 1))
+        if kind == "space":
+            return f"marked space {attach}", False
+        if kind == "st":
+            if size == 1:
+                return f"marked st {attach}", False
+            if n == size:
+                return f"the {size} marked sts {attach}", True
+            raise _Unsupported("attachment to a stitch group")
+        return f"marked st/space {attach}", False
+    raise _Unsupported("attachment")
+
+
+def _noun(a):
+    word = {"rsc": "reverse sc"}.get(a.name, a.name)
+    return {"fp": "front post ", "bp": "back post "}.get(a.post, "") + word
+
+
+def _mark_what(a):
+    if a.name == "ch":
+        return "this space"
+    if not a.kind and a.n > 1:
+        return f"these {a.n} sts"
+    return "this st"
+
+
+def _atom_text(a: Atom, ctx):
+    text = _atom_core(a, ctx)
     if a.labels:
-        base = _atom_text(Atom(a.name, a.n, a.kind, a.k, [], a.attach))
-        return f"{base} (mark as {', '.join(a.labels)})"
-    if a.attach:
-        if a.name == "ss" and a.attach == "[%,0]" and a.n == 1 and not a.kind:
-            return "ss to first st"
-        if re.fullmatch(_LABEL_RE, a.attach) and a.attach != "R0" and a.n == 1 and not a.kind:
-            if a.name in BASE_STITCHES or a.name == "ss":
-                return f"{a.name} in marked st {a.attach}"
-        raise _Unsupported("attachment")
-    name, n = a.name, a.n
-    if a.kind == "inc":
-        if a.name not in BASE_STITCHES or a.k < 2:
-            raise _Unsupported("inc")
-        if n == 1:
-            return f"{a.k} {name} in next st"
-        return f"{a.k} {name} in each of next {n} sts"
-    if a.kind == "tog":
-        if a.name not in BASE_STITCHES or a.k < 2:
-            raise _Unsupported("tog")
-        word = f"{name}{a.k}tog"
-        return word if n == 1 else f"({word}) {n} times"
-    if name in BASE_STITCHES:
-        return f"{name} in {_sts(n)}"
-    if name == "ch":
-        return f"ch {n}"
-    if name == "ss":
-        return f"ss in {_sts(n)}"
-    if name == "sk":
-        return "skip next st" if n == 1 else f"skip {n}"
-    if name == "turn" and n == 1:
+        text += f" (mark {_mark_what(a)} as {' and '.join(a.labels)})"
+    return text
+
+
+def _atom_core(a: Atom, ctx):
+    name, n, k = a.name, a.n, a.k
+    if name == "turn":
+        if n != 1 or a.attach or a.labels or ctx.bare:
+            raise _Unsupported("turn")
         return "turn"
-    raise _Unsupported(f"stitch {name}")
+    if name == "sk":
+        if a.attach or a.labels or ctx.bare:
+            raise _Unsupported("skip")
+        if ctx.unit == "ch":
+            return "skip next ch" if n == 1 else f"skip next {n} ch"
+        return "skip next st" if n == 1 else f"skip {n}"
+    if name == "ch":
+        if a.attach:
+            raise _Unsupported("attachment")
+        return f"ch {n}"
+    if name in ("ring", "tie_up"):
+        raise _Unsupported(f"stitch {name}")
+    if name == "picot":
+        if a.attach or (ctx.bare and n != 1):
+            raise _Unsupported("picot")
+        one = f"{k}-ch picot (ch {k}, ss back into the st before it)"
+        return one if n == 1 else f"({one}) {n} times"
+
+    if name == "ss" and a.attach == "[%,0]" and n == 1 and not a.kind and not a.loop and not ctx.bare:
+        return "ss to first st"
+    place, each = None, False
+    if a.attach:
+        if ctx.bare:
+            raise _Unsupported("attachment inside a group")
+        place, each = _place(a.attach, ctx, n)
+
+    noun = _noun(a)
+    loopof = {"bl": "back loop only of ", "fl": "front loop only of "}.get(a.loop, "")
+    loop_par = {"bl": " (back loop only)", "fl": " (front loop only)"}.get(a.loop, "")
+    conn = "around" if a.post else "in"
+    if place and name == "ss" and place.startswith(("marked", "the marked")):
+        conn = "to"
+    cnt = f"{n} " if n > 1 else ""
+
+    if a.kind == "":
+        if place is None and not ctx.bare:
+            return f"{noun} {conn} {loopof}{_sts(n, ctx.unit)}"
+        if ctx.bare:
+            return f"{cnt}{noun}{loop_par}"
+        if each:
+            return f"{noun} {conn} {loopof}each of {place}"
+        return f"{cnt}{noun} {conn} {loopof}{place}"
+
+    if a.kind == "inc":
+        if name not in BASE_STITCHES or k < 2:
+            raise _Unsupported("inc")
+        if place is None and not ctx.bare:
+            if n == 1:
+                return f"{k} {noun} {conn} {loopof}{_sts(1, ctx.unit)}"
+            return f"{k} {noun} {conn} {loopof}each of {_sts(n, ctx.unit)}"
+        if n != 1 or each:
+            raise _Unsupported("inc")
+        return f"{k} {noun}{loop_par}" if ctx.bare else f"{k} {noun} {conn} {loopof}{place}"
+
+    if a.kind == "tog":
+        if name not in BASE_STITCHES or k < 2 or place is not None:
+            raise _Unsupported("tog")
+        loops = {"bl": " in back loops only", "fl": " in front loops only"}.get(a.loop, "")
+        one = f"{_noun(replace(a, name=f'{name}{k}tog'))}{loops}"
+        if ctx.bare:
+            if n != 1:
+                raise _Unsupported("tog")
+            return one
+        return one if n == 1 else f"({one}) {n} times"
+
+    if a.kind in _KIND_NAMES:
+        noun_b = f"{k}-{name} {_KIND_NAMES[a.kind]}"
+        if ctx.bare:
+            return noun_b if n == 1 else f"{n} {noun_b}s"
+        if place is None:
+            return f"{noun_b} in next st" if n == 1 else f"{noun_b} in each of next {n} sts"
+        if n != 1 or each:
+            raise _Unsupported("bobble")
+        return f"{noun_b} in {place}"
+    raise _Unsupported("stitch")
 
 
-def _items_text(items):
-    return ", ".join(_item_text(i) for i in items)
+def _items_text(items, ctx):
+    return ", ".join(_item_text(i, ctx) for i in items)
 
 
-def _item_text(item):
+def _item_text(item, ctx):
     if isinstance(item, Atom):
-        return _atom_text(item)
-    if item.attach or item.labels:
-        raise _Unsupported("group attachment")
-    only = item.items[0] if len(item.items) == 1 else None
-    if item.repeated and isinstance(only, Atom) and not only.kind and not only.attach and not only.labels:
-        if only.name in BASE_STITCHES | {"ch", "ss"}:  # 3*[sc] is just 3sc
-            return _atom_text(Atom(only.name, only.n * item.times))
-    inner = _items_text(item.items)
-    if item.repeated:
-        return f"({inner}) {item.times} time{'' if item.times == 1 else 's'}"
-    return f"({inner})"
+        return _atom_text(item, ctx)
+    if isinstance(item, Marker):
+        raise _Unsupported("marker outside a repeat")
+    return _group_text(item, ctx)
 
 
-def _ring_text(items):
-    """(Nsc)@R0 -> 'N sc in magic ring' (optionally after a chain such as ch 2)."""
-    parts = []
-    for it in items:
-        if isinstance(it, Group) and it.attach == "R0":
-            if it.labels or it.repeated or len(it.items) != 1:
-                raise _Unsupported("ring group")
-            a = it.items[0]
-            if not (isinstance(a, Atom) and a.name in BASE_STITCHES and not a.kind and not a.attach and not a.labels):
-                raise _Unsupported("ring group")
-            parts.append(f"{a.n} {a.name} in magic ring")
-        else:
-            parts.append(_item_text(it))
-    return ", ".join(parts)
+def _is_plain(a):
+    return isinstance(a, Atom) and not a.kind and not a.attach and not a.labels and not a.post and not a.loop
 
 
-def _is_atom(items, name):
-    return len(items) == 1 and isinstance(items[0], Atom) and items[0].name == name and not items[0].kind
+def _group_text(g: Group, ctx):
+    if g.attach:
+        if g.repeated:
+            raise _Unsupported("repeated group attachment")
+        return _placed_group_text(g, ctx)
+    if g.labels and g.repeated:
+        raise _Unsupported("repeated group label")
+    text = _plain_group_text(g, ctx)
+    if g.labels:
+        text += f" (mark all of these as {' and '.join(g.labels)})"
+    return text
 
 
-def _uses_ring(items):
-    return any(isinstance(i, Group) and i.attach == "R0" for i in items)
+def _plain_group_text(g: Group, ctx):
+    markers = [i for i in g.items if isinstance(i, Marker)]
+    if markers and not g.repeated:
+        raise _Unsupported("marker outside a repeat")
+    only = g.items[0] if len(g.items) == 1 else None
+    if g.repeated and _is_plain(only) and only.name in BASE_STITCHES | {"ch", "ss"}:  # 3*[sc] is just 3sc
+        return _atom_text(Atom(only.name, only.n * g.times), ctx)
+    inner = ", ".join("[marker]" if isinstance(i, Marker) else _item_text(i, ctx) for i in g.items)
+    if not g.repeated:
+        return f"({inner})"
+    text = f"({inner}) {g.times} time{'' if g.times == 1 else 's'}"
+    for m in markers:
+        text += (
+            "; on the last repeat stop at the marker"
+            if m.kind == ">"
+            else "; on the first repeat start at the marker"
+        )
+    return text
+
+
+def _placed_group_text(g: Group, ctx):
+    """(...)@place: every stitch in the group goes into that one place."""
+    if ctx.bare:
+        raise _Unsupported("nested placed group")
+    only = g.items[0] if len(g.items) == 1 else None
+    if _is_plain(only) and only.name not in _WORDS:
+        text = _atom_text(replace(only, attach=g.attach), ctx)  # (6sc)@R0 -> 6 sc in magic ring
+    else:
+        place, each = _place(g.attach, ctx)
+        if each:
+            raise _Unsupported("group into stitch group")
+        inner = ", ".join(_item_text(i, replace(ctx, bare=True)) for i in g.items)
+        text = f"({inner}) all in {place}"
+    if g.labels:
+        text += f" (mark all of these as {' and '.join(g.labels)})"
+    return text
 
 
 def _canon(code):
@@ -245,6 +428,22 @@ def _canon(code):
     return canonicalize_cp(code)
 
 
+def _is_atom(items, name):
+    return len(items) == 1 and isinstance(items[0], Atom) and items[0].name == name and not items[0].kind
+
+
+def _uses_ring(items):
+    return any(
+        (isinstance(i, Group) and i.attach == "R0") or (isinstance(i, Atom) and i.attach == "R0") for i in items
+    )
+
+
+def _has_turn(items):
+    return any(
+        (isinstance(i, Atom) and i.name == "turn") or (isinstance(i, Group) and _has_turn(i.items)) for i in items
+    )
+
+
 def describe_code(code: str) -> list[str]:
     """One English sentence per code line; 'UNSUPPORTED: <code>' for what we can't say."""
     lines = [l for l in _canon(code).splitlines() if l.strip() and not l.lstrip().startswith("#")]
@@ -256,63 +455,69 @@ def describe_code(code: str) -> list[str]:
             parsed.append((raw, None))
 
     # Rows (turned, built on a foundation chain) versus rounds (worked around).
-    def has_turn(items):
-        return any(
-            (isinstance(i, Atom) and i.name == "turn") or (isinstance(i, Group) and has_turn(i.items))
-            for i in items
-        )
-
-    foundation = bool(parsed) and parsed[0][1] is not None and _is_atom(parsed[0][1], "ch") and len(parsed) > 1
-    rows_mode = foundation or any(items and has_turn(items) for _, items in parsed)
+    first = parsed[0][1] if parsed else None
+    foundation = (
+        first is not None and _is_atom(first, "ch") and not first[0].labels and not first[0].attach and len(parsed) > 1
+    )
+    rows_mode = foundation or any(items and _has_turn(items) for _, items in parsed)
     if any(items and _uses_ring(items) for _, items in parsed):
         rows_mode = False
     word = "Row" if rows_mode else "Round"
 
-    out, number = [], 0
+    out, number, reg = [], 0, {}
     for idx, (raw, items) in enumerate(parsed):
         unsupported = f"UNSUPPORTED: {raw}"
         if items is None:
             number += 1
             out.append(unsupported)
             continue
+        _register(items, reg)
         try:
             if _is_atom(items, "ring") and items[0].attach == "" and items[0].labels == ["R0"] and items[0].n == 1:
                 out.append("Make a magic ring.")
                 continue
-            if _is_atom(items, "tie_up"):
+            if _is_atom(items, "tie_up") and not items[0].labels and not items[0].attach:
                 out.append("Fasten off.")
+                continue
+            if _is_atom(items, "turn") and not items[0].labels and not items[0].attach and items[0].n == 1:
+                out.append("Turn.")  # a bare turn line is not a row of its own
                 continue
             if idx == 0 and foundation:
                 out.append(f"Ch {items[0].n}.")
                 continue
+            ctx = _Ctx(reg)
+            if idx == 1 and foundation:
+                body = _foundation_row_text(parsed[0][1][0].n, items, replace(ctx, unit="ch"))
+            else:
+                body = _items_text(items, ctx)
             number += 1
-            body = _ring_text(items) if _uses_ring(items) else _items_text(items)
-            if idx == 1 and foundation and _is_foundation_row(parsed[0][1][0].n, items):
-                body = _foundation_row_text(items)
             out.append(f"{word} {number}: {body}.")
         except _Unsupported:
+            number += 1
             out.append(unsupported)
     return out
 
 
 _FROM_HOOK = {"sc": "2nd", "hdc": "3rd", "dc": "4th"}
+# Skips before the first stitch that mean "stitch in the Nth ch from hook" (the skipped
+# chains count as the turning chain, so dc skips 2, not 3).
+_HOOK_SKIPS = {"sc": (0, 1), "hdc": (1,), "dc": (2,)}
 
 
-def _is_foundation_row(chains, items):
-    """Row 1 worked once along a foundation chain: Nsc [,turn] with N = chains - 1."""
-    first = items[0]
-    return (
-        isinstance(first, Atom)
-        and first.name == "sc"
-        and not first.kind
-        and not first.attach
-        and not first.labels
-        and first.n == chains - 1
-        and all(isinstance(i, Atom) and i.name == "turn" for i in items[1:])
-        and len(items) <= 2
-    )
-
-
-def _foundation_row_text(items):
-    text = f"{items[0].name} in {_FROM_HOOK[items[0].name]} ch from hook and in each ch across"
-    return text + (", turn" if len(items) == 2 else "")
+def _foundation_row_text(chains, items, ctx):
+    """Row 1 worked along a foundation chain, e.g. 'sk,10sc,turn' on Ch 11."""
+    rest, skipped = list(items), 0
+    if rest and isinstance(rest[0], Atom) and rest[0].name == "sk" and _is_plain(rest[0]):
+        skipped, rest = rest[0].n, rest[1:]
+    if rest and _is_plain(rest[0]) and rest[0].name in _FROM_HOOK:
+        s = rest[0]
+        tail_ok = all(
+            isinstance(i, Atom) and i.name in ("ch", "turn") and not i.attach and not i.labels for i in rest[1:]
+        )
+        # sc/hdc skip 1 ch and work chains-1 stitches; dc skips 2 and works chains-2.
+        worked = chains - (2 if s.name == "dc" else 1)
+        if tail_ok and skipped in _HOOK_SKIPS[s.name] and s.n == worked:
+            head = f"{s.name} in {_FROM_HOOK[s.name]} ch from hook and in each ch across"
+            tail = _items_text(rest[1:], replace(ctx, unit="st"))
+            return head + (f", {tail}" if tail else "")
+    return _items_text(items, ctx)

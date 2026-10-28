@@ -1,0 +1,254 @@
+"""decide_verdict(): stated-vs-computed counts, counting readings, and the five verdict kinds.
+
+Most tests hand the verdict engine-neutral check results (RowInfo lists), so they do not
+depend on any engine syntax; a few run real encoded patterns through the engine.
+"""
+
+from frogless.engine import CheckError, CheckResult, RowInfo, get_engine
+from frogless.pipeline.report import RowResult
+from frogless.pipeline.verdict import PLAIN, TURN_COUNTS, decide_verdict
+from frogless.testset.generators import base_cases, load_config
+from frogless.testset.inject import injected_cases
+from frogless.testset.spec import Item, Repeat, Spec
+from scripts.run_testset import verdict_rows
+
+ENGINE = get_engine()
+
+
+def info(index, count, **types):
+    return RowInfo(index, count, types or {"sc": count})
+
+
+def run(lines, infos, error=None, **row_fields):
+    """lines: [(source, has_code)]; infos: the engine rows of the lines that have code, in order."""
+    rows = [RowResult(index=i, source=src, code="x" if coded else "", **row_fields)
+            for i, (src, coded) in enumerate(lines)]
+    result = CheckResult(ok=error is None, error=error, rows=infos)
+    return decide_verdict(ENGINE, "", rows, result)
+
+
+def count_error(row, message="Row has the wrong number of stitches."):
+    return CheckError(message, row=row, kind="count")
+
+
+# ---- extra stitch is caught at its own row ----
+CIRCLE = [("Round 1: 6 sc in ring (6)", True), ("Round 2: inc in each st around (12)", True),
+          ("Round 3: sc around (12)", True)]
+
+
+def test_matching_counts_work():
+    v, stated, computed = run(CIRCLE, [info(1, 6), info(2, 12), info(3, 12)])
+    assert v.kind == "works" and v.row is None
+    assert stated == computed == {1: 6, 2: 12, 3: 12}
+
+
+def test_extra_stitch_caught_at_its_own_row_not_the_next():
+    # round 2 makes 13 but says 12; the engine only complains one row later
+    v, stated, computed = run(CIRCLE, [info(1, 6), info(2, 13), info(3, 12)], error=count_error(3))
+    assert (v.kind, v.row) == ("breaks", 2)
+    assert v.message.startswith("Row 2: pattern says 12, the instructions make 13")
+    assert stated[2] == 12 and computed[2] == 13
+
+
+def test_extra_stitch_in_the_last_row_is_caught():
+    v, _, _ = run(CIRCLE, [info(1, 6), info(2, 12), info(3, 13)])  # the engine says ok
+    assert (v.kind, v.row) == ("breaks", 3)
+    assert "pattern says 12, the instructions make 13" in v.message
+
+
+def test_engine_error_without_a_stated_count_still_breaks():
+    lines = [("Round 1: 6 sc in ring (6)", True), ("Round 2: sc around", True)]
+    v, _, _ = run(lines, [info(1, 6), info(2, 5)], error=count_error(2, "Row 2 leaves 1 stitch unworked."))
+    assert (v.kind, v.row) == ("breaks", 2)
+    assert "leaves 1 stitch" in v.message
+
+
+def test_earliest_problem_wins_when_engine_error_comes_first():
+    lines = CIRCLE
+    v, _, _ = run(lines, [info(1, 6), info(2, 14), info(3, 13)], error=count_error(2, "Row 2 has too many."))
+    assert (v.kind, v.row) == ("breaks", 2)
+
+
+def test_range_line_applies_its_count_to_each_row():
+    src = "Rows 2-4: sc across (12)"
+    lines = [("Row 1: sc (12)", True)] + [(src, True)] * 3
+    ok, _, _ = run(lines, [info(1, 12)] * 4)
+    assert ok.kind == "works"
+    v, stated, _ = run(lines, [info(1, 12), info(2, 12), info(3, 12), info(4, 13)])
+    assert (v.kind, v.row) == ("breaks", 4) and stated == {1: 12, 2: 12, 3: 12, 4: 12}
+
+
+def test_multi_size_count_is_not_checked():
+    v, stated, _ = run([("Round 1: sc in ring (6 [8, 10])", True)], [info(1, 6)])
+    assert v.kind == "works" and stated == {}
+
+
+# ---- bare counts and chains ----
+def test_bare_count_may_include_chains():
+    lines = [("Ch 11.", True), ("Row 1: sc across, ch 1, turn (10)", True), ("Row 2: sc across (11)", True)]
+    infos = [info(0, 11, ch=11), info(1, 10), info(2, 11, ch=1, sc=10)]
+    v, stated, computed = run(lines, infos)
+    assert v.kind == "works"
+    assert stated == {1: 10, 2: 11} and computed == {1: 10, 2: 11}  # row 0 is the foundation chain
+
+
+def test_bare_count_may_leave_chains_out():
+    lines = [("Ch 11.", True), ("Row 1: sc across (10)", True), ("Row 2: sc across (10)", True)]
+    v, _, computed = run(lines, [info(0, 11, ch=11), info(1, 10), info(2, 11, ch=1, sc=10)])
+    assert v.kind == "works" and computed[2] == 10
+
+
+def test_typed_count_counts_that_stitch_only():
+    lines = [("Ch 11.", True), ("Row 1: sc across (10)", True), ("Row 2: sc across (10 sc)", True),
+             ("Row 3: sc across (11 sc)", True)]
+    infos = [info(0, 11, ch=11), info(1, 10), info(2, 11, ch=1, sc=10), info(3, 11, ch=1, sc=10)]
+    v, _, _ = run(lines, infos)
+    assert (v.kind, v.row) == ("breaks", 3)  # 11 sc is wrong even though 11 counts the chain
+
+
+# ---- the turning-chain reading is chosen by majority ----
+def dc_rows(*stated):
+    """A foundation chain, then dc rows of 13 dc after a 3-chain; each row states its own count."""
+    lines = [("Ch 15.", True), ("Row 1: dc in 4th ch from hook and across (13)", True)]
+    infos = [info(0, 15, ch=15), info(1, 13, dc=13)]
+    for n, count in enumerate(stated, 2):
+        lines.append((f"Row {n}: ch 3, dc across ({count})", True))
+        infos.append(info(n, 16, ch=3, dc=13))
+    return lines, infos
+
+
+def test_turning_chain_not_counted_when_the_counts_say_so():
+    v, _, computed = run(*dc_rows(13, 13, 13))
+    assert (v.kind, v.reading) == ("works", PLAIN) and computed[3] == 13
+
+
+def test_turning_chain_counted_when_most_counts_say_so():
+    v, _, computed = run(*dc_rows(14, 14, 14))
+    assert v.kind == "works" and v.reading == TURN_COUNTS
+    assert computed[2] == 14 and "turning chain counts as a stitch" in v.message
+
+
+def test_minority_rows_break_under_the_majority_reading():
+    lines, infos = dc_rows(14, 14, 13, 14)  # row 4 follows the other habit
+    v, _, _ = run(lines, infos)
+    assert (v.kind, v.row, v.reading) == ("breaks", 4, TURN_COUNTS)
+    assert "pattern says 13, the instructions make 14" in v.message
+    v, _, _ = run(*dc_rows(13, 13, 14, 13))  # and the other way round
+    assert (v.kind, v.row, v.reading) == ("breaks", 4, PLAIN)
+
+
+def test_equally_good_readings_that_disagree_are_ambiguous():
+    v, _, _ = run(*dc_rows(14, 13))  # row 2 follows one habit, row 3 the other
+    assert v.kind == "ambiguous"
+    assert v.row == 2 and len(v.readings) == 2
+    assert any(PLAIN in r for r in v.readings) and any(TURN_COUNTS in r for r in v.readings)
+
+
+def test_a_single_turned_row_follows_the_reading_that_fits():
+    v, _, _ = run(*dc_rows(14))
+    assert (v.kind, v.reading) == ("works", TURN_COUNTS)
+
+
+# ---- unreadable versus breaks before the unreadable row ----
+def test_unreadable_when_a_row_has_no_code():
+    lines = CIRCLE[:2] + [("Round 3: *sc, inc; rep from * around (18)", False)]
+    v, stated, _ = run(lines, [info(1, 6), info(2, 12)])
+    assert v.kind == "unreadable" and "Round 3" in v.message
+    assert stated == {1: 6, 2: 12, 3: 18}
+
+
+def test_break_before_the_first_unreadable_row_is_reported():
+    lines = [CIRCLE[0], ("Round 2: inc in each st around (12)", True),
+             ("Round 3: something odd (18)", False), ("Round 4: sc around (18)", True)]
+    v, _, _ = run(lines, [info(1, 6), info(2, 13), info(3, 18)])
+    assert (v.kind, v.row) == ("breaks", 2)
+
+
+def test_break_after_the_unreadable_row_is_not_reported():
+    lines = [CIRCLE[0], ("Round 2: something odd (12)", False), ("Round 3: sc around (12)", True)]
+    v, stated, computed = run(lines, [info(1, 6), info(2, 13)])
+    assert v.kind == "unreadable"
+    assert computed == {1: 6, 3: 13}  # the unread row keeps its number; later rows are numbered by position
+
+
+def test_nothing_to_check():
+    v, stated, computed = decide_verdict(ENGINE, "", [RowResult(0, "Round 1: ???")], None)
+    assert v.kind == "unreadable" and stated == computed == {}
+
+
+# ---- model rows ----
+def test_model_rows_not_confirmed_give_works_unverified():
+    lines = CIRCLE
+    infos = [info(1, 6), info(2, 12), info(3, 12)]
+    rows = [RowResult(i, s, code="x", origin="model" if i in (1, 2) else "rules",
+                      faithful=False if i == 1 else None) for i, (s, _) in enumerate(lines)]
+    v, _, _ = decide_verdict(ENGINE, "", rows, CheckResult(ok=True, rows=infos))
+    assert v.kind == "works_unverified" and v.rows == [2, 3]
+    assert "rows 2, 3" in v.message
+    for r in rows:
+        r.faithful = True
+    v, _, _ = decide_verdict(ENGINE, "", rows, CheckResult(ok=True, rows=infos))
+    assert v.kind == "works"
+
+
+def test_a_break_beats_works_unverified():
+    rows = [RowResult(i, s, code="x", origin="model") for i, (s, _) in enumerate(CIRCLE)]
+    v, _, _ = decide_verdict(ENGINE, "", rows, CheckResult(ok=True, rows=[info(1, 6), info(2, 12), info(3, 14)]))
+    assert (v.kind, v.row) == ("breaks", 3)
+
+
+# ---- with the real engine ----
+def rows_of(spec, english):
+    return verdict_rows(ENGINE, {"spec": spec, "english": english})
+
+
+def verdict_of(spec, english):
+    rows = rows_of(spec, english)
+    code = "\n".join(r.code for r in rows)
+    return decide_verdict(ENGINE, english, rows, ENGINE.check(code))
+
+
+def broken_circle(last_stated):
+    """Round 3 works into 12 stitches but makes 19 (an inc where a sc belongs)."""
+    spec = Spec("ring", "rounds", [
+        [Item("st", "sc", 6)], [Item("inc", "sc", 6)],
+        [Repeat([Item("st", "sc"), Item("inc", "sc")], 5), Item("inc", "sc", 2)],
+        [Item("st", "sc", 18)]], stitch="sc")
+    english = ("R1: 6 sc in magic ring (6)\nR2: inc in each st around (12)\n"
+               f"R3: *sc, inc* x 5, inc in next 2 sts ({last_stated})\nR4: sc around (18)")
+    return spec, english
+
+
+def test_real_engine_catches_the_late_extra_stitch_at_its_row():
+    spec, english = broken_circle(18)
+    rows = rows_of(spec, english)
+    result = ENGINE.check("\n".join(r.code for r in rows))
+    assert not result.ok and result.error.row == 4  # the engine alone blames the next row
+    v, stated, computed = decide_verdict(ENGINE, english, rows, result)
+    assert (v.kind, v.row) == ("breaks", 3)
+    assert stated[3] == 18 and computed[3] == 19
+
+
+def test_real_engine_honest_count_moves_the_break_to_the_next_row():
+    spec, english = broken_circle(19)
+    v, _, _ = verdict_of(spec, english)
+    assert (v.kind, v.row) == ("breaks", 4)  # R4 is the one that no longer fits
+
+
+def test_real_engine_unparsable_code_breaks_at_that_row():
+    spec, english = broken_circle(18)
+    rows = rows_of(spec, english)
+    rows[3].code = "???"  # round 2
+    v, _, _ = decide_verdict(ENGINE, english, rows, ENGINE.check("\n".join(r.code for r in rows)))
+    assert (v.kind, v.row) == ("breaks", 3)
+
+
+def test_bench_known_gap_cases_are_judged_right():
+    cfg = load_config()
+    bases = base_cases(cfg)
+    gaps = [c for c in injected_cases(cfg, bases) if c["known_gap"]]
+    assert len(gaps) >= 10
+    for case in gaps:
+        rows = rows_of(case["spec"], case["english"])
+        v, _, _ = decide_verdict(ENGINE, case["english"], rows, ENGINE.check("\n".join(r.code for r in rows)))
+        assert (v.kind, v.row) == ("breaks", case["expected"]["break_row"]), case["id"]

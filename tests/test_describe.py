@@ -85,9 +85,181 @@ def test_fasten_off():
     assert describe("ring.R0\n(6sc)@R0\ntie_up")[-1] == "Fasten off."
 
 
-def test_labels_and_attachments():
-    assert describe("ring.R0\n(6sc)@R0\n3sc,sc.A,2sc") [-1] == "Round 2: sc in next 3 sts, sc in next st (mark as A), sc in next 2 sts."
-    assert describe("ring.R0\n(6sc)@R0\n6sc,ss@A")[-1] == "Round 2: sc in next 6 sts, ss in marked st A."
+RING = "ring.R0\n(6sc)@R0\n"
+
+
+def last(code):
+    return describe(code)[-1]
+
+
+def test_labels_on_stitches_and_spaces():
+    assert last(RING + "3sc,sc.A,2sc") == "Round 2: sc in next 3 sts, sc in next st (mark this st as A), sc in next 2 sts."
+    assert last(RING + "tr.A") == "Round 2: tr in next st (mark this st as A)."
+    assert last(RING + "dc.S") == "Round 2: dc in next st (mark this st as S)."
+    assert last(RING + "5ch.L") == "Round 2: ch 5 (mark this space as L)."
+    assert last(RING + "2ch.B") == "Round 2: ch 2 (mark this space as B)."
+    assert last(RING + "3dc.S") == "Round 2: dc in next 3 sts (mark these 3 sts as S)."
+    assert last(RING + "sc.A.B") == "Round 2: sc in next st (mark this st as A and B)."
+    assert last(RING + "dc2inc.A") == "Round 2: 2 dc in next st (mark this st as A)."
+
+
+def test_single_attachments():
+    assert last(RING + "dc.S,ss@S") == "Round 2: dc in next st (mark this st as S), ss to marked st S."
+    assert last(RING + "2ch.A,ss@A") == "Round 2: ch 2 (mark this space as A), ss to marked space A."
+    assert last(RING + "3dc.S,2dc,3dc@S") == (
+        "Round 2: dc in next 3 sts (mark these 3 sts as S), dc in next 2 sts, dc in each of the 3 marked sts S."
+    )
+    assert last(RING + "dc.S,3dc@S") == "Round 2: dc in next st (mark this st as S), 3 dc in marked st S."
+    assert last(RING + "2dc.W,4dc,2dc@W").endswith("dc in each of the 2 marked sts W.")
+    # a label that was never defined is still described, but not guessed at
+    assert last(RING + "3dc@W") == "Round 2: 3 dc in marked st/space W."
+    assert last(RING + "ss@[%,0]") == "Round 2: ss to first st."
+
+
+def test_attachment_to_a_leg_with_second_head():
+    out = describe("10ch\nsk,9sc,turn\nch,sc,ch,5ch.L,5sc@1L,8sc")
+    assert out[-1] == (
+        "Row 2: ch 1, sc in next st, ch 1, ch 5 (mark this space as L), "
+        "5 sc in marked space L (second attachment head, worked back along it), sc in next 8 sts."
+    )
+
+
+def test_groups_worked_into_one_place():
+    out = describe("ring.R0\n(3dc,2ch.A,3dc,2ch.B)@R0\n(2dc,tr.E,2dc)@A\n(6sc)@B")
+    assert out[1] == "Round 1: (3 dc, ch 2 (mark this space as A), 3 dc, ch 2 (mark this space as B)) all in magic ring."
+    assert out[2] == "Round 2: (2 dc, tr (mark this st as E), 2 dc) all in marked space A."
+    assert out[3] == "Round 3: 6 sc in marked space B."
+    # unknown label: say so rather than guess st or space
+    assert last(RING + "(2dc,tr.E,2dc)@A") == "Round 2: (2 dc, tr (mark this st as E), 2 dc) all in marked st/space A."
+    # labelled stitches inside a group worked into the ring
+    out = describe("ring.R0\n(dc.S,2dc,2ch.A,3dc,2ch.B,3dc)@R0,ss@S")
+    assert out[1] == (
+        "Round 1: (dc (mark this st as S), 2 dc, ch 2 (mark this space as A), 3 dc, "
+        "ch 2 (mark this space as B), 3 dc) all in magic ring, ss to marked st S."
+    )
+
+
+def test_group_label():
+    assert last(RING + "(3ch,sc).B") == "Round 2: (ch 3, sc in next st) (mark all of these as B)."
+
+
+def test_square_rounds_end_to_end():
+    code = (
+        "ring.R0\n"
+        "(3dc.S,2ch.A,3dc,2ch.B,3dc,2ch.C,3dc,2ch.D)@R0\n"
+        "(2dc.W,2ch.E,2dc)@A,3dc,(2dc,2ch.F,2dc)@B,3dc,(2dc,2ch.G,2dc)@C,3dc,(2dc,2ch.H,2dc)@D,3dc@S,ss\n"
+        "(2dc,2ch,2dc)@E,7dc,(2dc,2ch,2dc)@F,7dc,(2dc,2ch,2dc)@G,7dc,(2dc,2ch,2dc)@H,5dc,2dc@W"
+    )
+    out = describe(code)
+    assert len(out) == 4 and not any("UNSUPPORTED" in l for l in out)
+    assert out[2].startswith(
+        "Round 2: (2 dc (mark these 2 sts as W), ch 2 (mark this space as E), 2 dc) all in marked space A, dc in next 3 sts"
+    )
+    assert "dc in each of the 3 marked sts S" in out[2]
+    assert out[3].startswith("Round 3: (2 dc, ch 2, 2 dc) all in marked space E, dc in next 7 sts")
+    assert out[3].endswith("dc in next 5 sts, dc in each of the 2 marked sts W.")
+
+
+def test_same_stitch_attachment():
+    assert last(RING + "dc,ch,dc@[@]") == "Round 2: dc in next st, ch 1, dc in the same st."
+    assert last(RING + "dc2inc,ch,dc2inc@[@]") == "Round 2: 2 dc in next st, ch 1, 2 dc in the same st."
+    assert last(RING + "22*[dc,ch,dc@[@],ch,dc@[@]]") == (
+        "Round 2: (dc in next st, ch 1, dc in the same st, ch 1, dc in the same st) 22 times."
+    )
+
+
+def test_skips():
+    assert last(RING + "sk,5sc") == "Round 2: skip next st, sc in next 5 sts."
+    assert last(RING + "2sk,4sc") == "Round 2: skip 2, sc in next 4 sts."
+    assert last(RING + "4sk") == "Round 2: skip 4."
+
+
+def test_foundation_rows_with_skips():
+    assert describe("17ch\n2sk,15dc,turn\n15dc") == [
+        "Ch 17.",
+        "Row 1: dc in 4th ch from hook and in each ch across, turn.",
+        "Row 2: dc in next 15 sts.",
+    ]
+    assert describe("11ch\nsk,10sc,turn")[1] == "Row 1: sc in 2nd ch from hook and in each ch across, turn."
+    assert describe("11ch\nsk,10sc,ch,turn\nch,10sc")[1] == (
+        "Row 1: sc in 2nd ch from hook and in each ch across, ch 1, turn."
+    )
+    assert describe("15ch\nsk,14hdc,turn")[1] == "Row 1: hdc in 3rd ch from hook and in each ch across, turn."
+    # skipped chains that do not count as a stitch are said literally, in chains
+    assert describe("11ch\n3sk,8dc,turn")[1] == "Row 1: skip next 3 ch, dc in next 8 ch, turn."
+    assert describe("11ch\nsk,3*[dc,ch,sk],turn")[1] == (
+        "Row 1: skip next ch, (dc in next ch, ch 1, skip next ch) 3 times, turn."
+    )
+
+
+def test_turning_chains_and_turn():
+    assert describe("11ch\nsk,10sc,turn\nch,turn")[-1] == "Row 2: ch 1, turn."
+    assert describe("11ch\nsk,10sc,turn\n3ch,10dc,turn")[-1] == "Row 2: ch 3, dc in next 10 sts, turn."
+    assert describe("11ch\nsk,10sc,turn\nch,10sc,turn\n10sc")[-2] == "Row 2: ch 1, sc in next 10 sts, turn."
+    assert last(RING + "turn") == "Turn."
+
+
+@pytest.mark.parametrize(
+    "code,english",
+    [
+        ("dc5inc", "5 dc in next st"),
+        ("sc7inc", "7 sc in next st"),
+        ("tr2inc", "2 tr in next st"),
+        ("3dc4inc", "4 dc in each of next 3 sts"),
+        ("sc3tog", "sc3tog"),
+        ("2dc4tog", "(dc4tog) 2 times"),
+        ("scbl", "sc in back loop only of next st"),
+        ("2hdcfl", "hdc in front loop only of next 2 sts"),
+        ("trbl", "tr in back loop only of next st"),
+        ("dtrfl", "dtr in front loop only of next st"),
+        ("scbl2tog", "sc2tog in back loops only"),
+        ("hdcfl2tog", "hdc2tog in front loops only"),
+        ("dcbl2inc", "2 dc in back loop only of next st"),
+        ("fpdc", "front post dc around next st"),
+        ("2bptr", "back post tr around next 2 sts"),
+        ("bpsc2tog", "back post sc2tog"),
+        ("fpsc", "front post sc around next st"),
+        ("dc3bobble", "3-dc bobble in next st"),
+        ("tr4bobble", "4-tr bobble in next st"),
+        ("dc4pc", "4-dc popcorn in next st"),
+        ("hdc3puff", "3-hdc puff in next st"),
+        ("2dc3bobble", "3-dc bobble in each of next 2 sts"),
+        ("rsc", "reverse sc in next st"),
+        ("rscbl", "reverse sc in back loop only of next st"),
+        ("ssfl", "ss in front loop only of next st"),
+        ("picot3", "3-ch picot (ch 3, ss back into the st before it)"),
+        ("dtr", "dtr in next st"),
+        ("trtr", "trtr in next st"),
+        ("trtrbl", "trtr in back loop only of next st"),
+    ],
+)
+def test_stitch_names(code, english):
+    assert last(RING + code) == f"Round 2: {english}."
+
+
+def test_stitch_names_inside_a_group_worked_into_one_place():
+    assert last(RING + "(dc3bobble,2dcbl,picot3)@R0") == (
+        "Round 2: (3-dc bobble, 2 dc (back loop only), 3-ch picot (ch 3, ss back into the st before it)) all in magic ring."
+    )
+
+
+def test_partial_repeat_marker():
+    assert last(RING + "4*[2sc,>,sc2inc]") == (
+        "Round 2: (sc in next 2 sts, [marker], 2 sc in next st) 4 times; on the last repeat stop at the marker."
+    )
+    assert last(RING + "[2sc,>,sc2inc]*4") == last(RING + "4*[2sc,>,sc2inc]")
+    assert describe("12ch\nsk,11sc,turn\nch,4*[2sc,>,sc2inc],turn\nch,14sc")[2] == (
+        "Row 2: ch 1, (sc in next 2 sts, [marker], 2 sc in next st) 4 times; "
+        "on the last repeat stop at the marker, turn."
+    )
+    assert last(RING + "3*[2sc,<,sc2inc]").endswith("on the first repeat start at the marker.")
+    # a marker outside a repeat means nothing: flag it
+    assert last(RING + "2sc,>,sc") == "UNSUPPORTED: 2sc,>,sc"
+
+
+def test_multi_line_answers_one_sentence_per_line():
+    out = describe("ring.R0\n(6sc)@R0\n(2dc,tr.E,2dc)@A\n6sc")
+    assert len(out) == 4 and out[0] == "Make a magic ring."
 
 
 def test_unsupported_is_flagged_not_guessed():

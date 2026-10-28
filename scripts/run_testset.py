@@ -2,8 +2,10 @@
 
 Run from the repo root: python -m scripts.run_testset [--patterns FOLDER [--summary-only]]
 
-Synthetic cases go through two routes: code (spec -> encode -> check) and English
-(English -> translate -> stated-count gate -> check). Each route is PASS / FAIL / UNREADABLE per case.
+Synthetic cases go through three routes: code (spec -> encode -> check), English
+(English -> translate -> stated-count gate -> check) and verdict (encoded code paired with the
+case's English rows -> decide_verdict, which also compares each row's stated count with the
+count the engine makes). Each route is PASS / FAIL / UNREADABLE per case.
 --patterns runs only the English route on a folder of real pattern .txt files, which
 have no known answer. --summary-only prints totals only (for a held-out set).
 Output: a summary on screen and logs/testset/*.json. No model calls.
@@ -20,10 +22,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from frogless.engine import get_engine
 from frogless.pipeline.gate import gate_translation
+from frogless.pipeline.report import RowResult
+from frogless.pipeline.verdict import decide_verdict
 from frogless.testset.generators import ROOT, base_cases, load_config
 from frogless.testset.inject import injected_cases
 
-ROUTES = ("code", "english")
+ROUTES = ("code", "english", "verdict")
 
 
 def counts_of(result):
@@ -60,17 +64,51 @@ def run_english(engine, case):
     return judge(case["expected"], engine.check(tr.code))
 
 
+_LABEL = re.compile(r"^\s*\w+?\s*(\d+)(?:\s*-\s*(\d+))?\s*:")
+
+
+def verdict_rows(engine, case) -> list[RowResult]:
+    """Rows for decide_verdict: the encoded code, one line per row, paired with the English line
+    it came from (a range line such as "R2-8" covers several code lines)."""
+    spec, code = case["spec"], engine.encode(case["spec"]).splitlines()
+    english = case["english"].splitlines()
+    rows = []
+    if spec.start == "ring":  # the encoder's first line only makes the ring; no English of its own
+        rows.append(RowResult(index=0, source="make a magic ring.", code=code.pop(0), synthetic=True))
+    for line in english:
+        m = _LABEL.match(line)  # "Ch 11." has no number-colon label: it is the foundation chain, one line
+        n = int(m[2]) - int(m[1]) + 1 if m and m[2] else 1
+        for _ in range(n):
+            rows.append(RowResult(index=len(rows), source=line, code=code.pop(0)))
+    assert not code, "more code lines than English rows"
+    return rows
+
+
+def run_verdict(engine, case):
+    rows = verdict_rows(engine, case)
+    code = "\n".join(r.code for r in rows)
+    verdict, _, _ = decide_verdict(engine, case["english"], rows, engine.check(code))
+    case["verdict"] = {"kind": verdict.kind, "row": verdict.row, "message": verdict.message}
+    want, row = case["expected"]["verdict"], case["expected"]["break_row"]
+    if verdict.kind != want:
+        return "FAIL", f"expected {want}, verdict {verdict.kind}: {verdict.message[:70]}"
+    if want == "breaks" and verdict.row != row:
+        return "FAIL", f"broke at row {verdict.row}, expected row {row}"
+    return "PASS", ""
+
+
 def run_synthetic(engine, cfg):
     cases = base_cases(cfg)
     cases += injected_cases(cfg, cases)
     for case in cases:
         case["results"] = {}
-        for route, fn in zip(ROUTES, (run_code, run_english)):
+        for route, fn in zip(ROUTES, (run_code, run_english, run_verdict)):
             status, reason = fn(engine, case)
             case["results"][route] = {"status": status, "reason": reason}
         res = case["results"]
         gap = " [known_gap]" if case["known_gap"] else ""
-        print(f"{case['id']:<44}{gap:<13} code {res['code']['status']:<10} english {res['english']['status']}")
+        print(f"{case['id']:<44}{gap:<13} code {res['code']['status']:<10} english {res['english']['status']:<11}"
+              f" verdict {res['verdict']['status']}")
         for route in ROUTES:
             if res[route]["reason"]:
                 print(f"    {route}: {res[route]['reason']}")

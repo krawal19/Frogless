@@ -67,12 +67,11 @@ Spiral rounds need no joining. For a joined round end the line with `,ss`, and s
 Foundation chain on its own line: `12ch`. Then:
 
 - `turn` is how this language writes flat rows, not a correction: every flat row ends with `,turn` except the last row of the piece, even if the English never says turn. It goes only at the very end of a line.
-**Turning chains and counting (standard convention).**
-- sc: the turning `ch 1` does NOT count. Later rows are `ch,` plus one sc per stitch above (`ch,11sc`). "sc in 2nd ch from hook": the skipped chain does not count, so Ch 15 gives 14 sc (`sk,14sc`).
-- hdc, dc, tr: the turning chain (ch 2, 3, 4) COUNTS as the row's first stitch; the last stitch goes into the top of the previous turning chain. Write no `ch`, only the row's stitches, counted one included: after 15 dc, "ch 3, dc in each st across" is `15dc`. `ch 3 (counts as dc)` is the same.
-- Foundation "dc in 4th ch from hook and in each ch across": the 3 skipped chains count as one dc, so Ch 17 gives 15 dc: `2sk,15dc` (one fewer `sk` than the English skips). hdc "in 3rd ch": Ch 15 gives 14, `sk,14hdc`.
-- If the English says the chain "does not count as a st" (or skip 3 ch), nothing counts: write `3ch,` and `3sk`.
-- Joined rounds follow the same rule: a starting `ch 3` counts as the round's first dc, written as `dc` (label it `dc.S`), and "sl st to top of ch-3" is `ss@S`. A stated count like "(12 dc)" counts only that stitch type, never chains. `ch 5 (counts as dc + ch 2)` is `dc,2ch`.
+**Turning chains and counting (the conventions a crocheter assumes unless the pattern says otherwise).**
+- A turning chain does NOT count as a stitch, at any height (sc `ch 1`, hdc `ch 2`, dc `ch 2` or `ch 3`, tr `ch 4`). It only adds height. Write it as `ch` and count only the stitches: `ch,11sc`, `2ch,12hdc`, after 14 dc "ch 3, dc in each st across" is `3ch,14dc`. A row that names only some stitches ("ch 2, hdc in next 8 sts") makes exactly those.
+- The chains before the first stitch of a foundation row ARE its turning chain, so they are not counted: "Ch 15, sc in 2nd ch from hook" gives 14 sc (`sk,14sc`); "Ch 16, hdc in 3rd ch from hook" gives 14 hdc (`2sk,14hdc`); "Ch 17, dc in 4th ch from hook and in each ch across" gives 14 dc (`3sk,14dc`). "Skip 3 ch" is the same.
+- The turning chain counts as a stitch ONLY when the English says so ("ch 3 (counts as first dc)", "turning ch counts as a st"). Then write no `ch`, only the row's stitches with that one included: after 15 dc, "ch 3 (counts as dc), dc in each st across" is `15dc`, and the chains skipped in row 1 count as one stitch too: Ch 17, "dc in 4th ch from hook" gives 15 dc, `2sk,15dc` (one fewer `sk` than the English skips). If the English says nothing but its stated count only fits that reading, use it; never otherwise.
+- Joined rounds follow the same rule: a starting `ch 3 (counts as dc)` is the round's first dc, written as `dc` (label it `dc.S`), and "sl st to top of ch-3" is `ss@S`; without "counts as", `3ch` is just chains. A stated count like "(12 dc)" counts only that stitch type; a bare "(12)" leaves chains and chain spaces out. `ch 5 (counts as dc + ch 2)` is `dc,2ch`.
 - Avoid `@` on flat rows except as below: it switches off that row's count check.
 - One stitch too many is caught only on the next row, never in the final row.
 
@@ -126,32 +125,20 @@ ch,11sc
 ```
 
 ```english
-Ch 11. Row 1: dc in 4th ch from hook and across, turn. Row 2: ch 3, dc in each st across (9 dc), turn. Row 3: ch 3, dc across.
-```
-```code
-11ch
-2sk,9dc,turn
-9dc,turn
-9dc
-```
-```counts
-9 9 9
-```
-
-```english
-Ch 11. Row 1: skip 3 ch, dc in each ch across (8 dc), turn. Row 2: ch 3 (does not count as a st), dc in each st across.
+Ch 11. Row 1: dc in 4th ch from hook and across, turn. Row 2: ch 3, dc in each st across (8 dc), turn. Row 3: ch 3, dc across.
 ```
 ```code
 11ch
 3sk,8dc,turn
+3ch,8dc,turn
 3ch,8dc
 ```
 ```counts
-8 8
+8 8 8
 ```
 
 ```english
-Rd 1: in a magic ring, ch 3, 2 dc, ch 2, (3 dc, ch 2) 3 times, sl st to top of ch-3 (12 dc).
+Rd 1: in a magic ring, ch 3 (counts as first dc), 2 dc, ch 2, (3 dc, ch 2) 3 times, sl st to top of ch-3 (12 dc).
 ```
 ```code
 ring.R0
@@ -200,7 +187,7 @@ ring.R0
 ```
 
 ```english
-Ch 11. Row 1: dc in 4th ch from hook and across. Rows 2-4: ch 3 (counts as dc), dc in each st across.
+Ch 11. Row 1: dc in 4th ch from hook and across (9 dc), turn. Rows 2-4: ch 3 (counts as dc), dc in each st across (9 dc).
 ```
 ```code
 11ch

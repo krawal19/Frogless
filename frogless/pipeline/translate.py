@@ -84,18 +84,21 @@ def ask_cached(prompt: str, role: str, schema: dict, cache_dir: Path, name: str)
     # The static start of the prompt is identical for every row, which lets the API reuse it
     # (prompt caching). prompt_cache_key groups the calls so they are routed together.
     static = prompt.split("<pattern>")[0]
-    result = chat(role, [{"role": "user", "content": prompt}], json_schema=schema,
-                  prompt_cache_key=name + "-" + hashlib.sha256(static.encode()).hexdigest()[:16])
+    messages = [{"role": "user", "content": prompt}]
+    cache_key = name + "-" + hashlib.sha256(static.encode()).hexdigest()[:16]
+    result = chat(role, messages, json_schema=schema, prompt_cache_key=cache_key)
     cost = result.get("cost_usd") or 0.0
+    # A hard row can use the whole output budget reasoning and reply with nothing:
+    # try once more with the role's larger budget.
+    retry_tokens = role_cfg.get("max_tokens_retry")
+    if not result["text"].strip() and retry_tokens and result["usage"].get("output_tokens", 0) >= role_cfg.get("max_tokens", 0):
+        result = chat(role, messages, json_schema=schema, prompt_cache_key=cache_key, max_tokens=retry_tokens)
+        cost += result.get("cost_usd") or 0.0
     reply = {"text": result["text"], "usage": result["usage"], "cost_usd": cost}
     if reply["text"].strip():  # an empty reply is not worth keeping: retry it next run
         cache_dir.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(reply, indent=1), encoding="utf-8")
     return reply, cost
-
-
-def _ask(prompt: str, cache_dir: Path) -> tuple[dict, float]:
-    return ask_cached(prompt, ROLE, ANSWER_SCHEMA, cache_dir, "translate_row")
 
 
 def _ask(prompt: str, cache_dir: Path) -> tuple[dict, float]:

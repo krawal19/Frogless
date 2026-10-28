@@ -19,7 +19,8 @@
     "ball": {"peaks": [3, 4, 5], "even_rounds": [1, 3]},
     "rows": {"sizes": [[10, 10], [12, 8], [15, 6], [8, 12], [20, 5], [9, 9]]},
     "rows_hdc": {"sizes": [[12, 8], [15, 6], [9, 10], [20, 5]]},
-    "rows_dc": {"sizes": [[14, 6], [11, 8], [15, 5], [8, 10]]}
+    "rows_dc": {"sizes": [[14, 6], [11, 8], [15, 5], [8, 10]]},
+    "rows_dc_counted": {"sizes": [[14, 6], [11, 8], [9, 7]]}
   },
   "injections": {
     "types": ["extra_stitch", "missing_stitch", "extra_inc", "missing_round", "impossible_increase"],

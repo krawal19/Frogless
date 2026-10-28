@@ -44,16 +44,19 @@ def ball_spec(peak, even_rounds) -> Spec:
     return spec
 
 
-def rows_spec(width, nrows, stitch="sc") -> Spec:
+def rows_spec(width, nrows, stitch="sc", counted=False) -> Spec:
     """Rectangle in turned rows of `width` stitches each.
 
-    sc: the turning chain does not count; Ch width+1 (sc in 2nd ch from hook).
-    hdc/dc: the turning chain counts as the first stitch of each row, so a row is the turning
-    chain plus width-1 worked stitches, and the skipped foundation chains count as one stitch:
-    hdc Ch width+1 (3rd ch from hook), dc Ch width+2 (4th ch from hook).
+    By default the turning chain does not count, at any height, and the chains skipped at the start
+    of row 1 are the turning chain too: sc Ch width+1 (sc in 2nd ch from hook), hdc Ch width+2
+    (3rd ch), dc Ch width+3 (4th ch). With counted=True the pattern says "ch 3 (counts as first dc)":
+    the turning chain is the first stitch of every later row, so a row names one stitch fewer after
+    it, and the skipped chains count as one stitch (hdc Ch width+1, dc Ch width+2).
     """
+    assert not counted or stitch != "sc"
+    skip = {"sc": 1, "hdc": 2, "dc": 3}[stitch]
     spec = Spec("chain", "rows", [[Item("st", stitch, width)] for _ in range(nrows)],
-                chain=width + {"sc": 1, "hdc": 1, "dc": 2}[stitch], stitch=stitch, turn_counts=stitch != "sc")
+                chain=width + skip - counted, stitch=stitch, turn_counts=counted)
     assert foundation_stitches(spec) == width
     return spec
 
@@ -87,7 +90,7 @@ def _part(x, style):
 
 
 def _after_turning_chain(items):
-    """In hdc/dc rows the counted turning chain is the row's first stitch, so the text names one fewer."""
+    """Where the turning chain counts as the row's first stitch, the text names one stitch fewer."""
     first = items[0]
     if isinstance(first, Repeat) or first.kind != "st":
         return items
@@ -143,11 +146,15 @@ def render_english(spec, style, stated) -> str:
         text = _body(spec.rows[i], prev, spec, style, first=i == 0)
         if spec.mode == "rows":
             turn_ch = f"ch {TURN_CH[spec.stitch]}"
-            at_end = style.get("turnch") == "end"  # "..., ch 3, turn" vs "ch 3, ..." on the next row
-            if i and not at_end:
-                text = f"{turn_ch}, {text}"
-            if j < len(spec.rows) - 1:
-                text += f", {turn_ch}, turn" if at_end else ", turn"
+            if spec.turn_counts:  # said on every row, at its start: "ch 3 (counts as first dc), ..."
+                text = f"{turn_ch} (counts as first {spec.stitch}), {text}" if i else text
+                text += ", turn" if j < len(spec.rows) - 1 else ""
+            else:
+                at_end = style.get("turnch") == "end"  # "..., ch 3, turn" vs "ch 3, ..." on the next row
+                if i and not at_end:
+                    text = f"{turn_ch}, {text}"
+                if j < len(spec.rows) - 1:
+                    text += f", {turn_ch}, turn" if at_end else ", turn"
         count = f" ({stated[i]})" if style["count"] == "paren" else f" = {stated[i]}"
         lines.append(f"{_label(i + 1, j + 1, spec, style)} {text}{count}")
         i = j + 1
@@ -191,4 +198,6 @@ def base_cases(cfg) -> list[dict]:
         for width, nrows in fam[family]["sizes"]:
             prefix = "rows" if stitch == "sc" else f"rows-{stitch}"
             items.append((f"{prefix}-{width}x{nrows}", family, rows_spec(width, nrows, stitch)))
+    for width, nrows in fam["rows_dc_counted"]["sizes"]:  # the pattern says "ch 3 (counts as first dc)"
+        items.append((f"rows-dc-counted-{width}x{nrows}", "rows_dc_counted", rows_spec(width, nrows, "dc", True)))
     return [make_case(i, f, s, pick_style(cfg, i)) for i, f, s in items]

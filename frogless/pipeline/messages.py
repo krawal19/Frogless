@@ -58,6 +58,16 @@ def _short(word: str, row: int, said: int | None, made: int | None) -> str:
     return f"{word} {row} is {unit} {'short' if made < said else 'over'}"
 
 
+TURN_NOTE = "Works only if the turning chain counts as a stitch."
+CHAINS_NOTE = "The counts only work if the chain spaces are counted."
+
+
+def _notes(v: Verdict) -> list[str]:
+    """The conventions a passing pattern leans on that the pattern itself never states."""
+    notes = [TURN_NOTE] if v.reading == TURN_COUNTS else []
+    return notes + ([CHAINS_NOTE] if v.chains_counted else [])
+
+
 def _ambiguous(v: Verdict, word: str) -> str:
     def result(alt):
         return "works" if alt.row is None else _short(word, alt.row, alt.said, alt.made)
@@ -87,10 +97,14 @@ def user_message(report: PatternReport) -> str:
     v, word = report.verdict, _word(report)
     if v is None:
         return ""
+    notes = " ".join(_notes(v))
     if v.kind == "works":
         clauses = _interpretations(v, word)
         if clauses:
-            return "✅ Works, if " + ", and if ".join(clauses) + "."
+            text = "✅ Works, if " + ", and if ".join(clauses) + "."
+            return text + (f" ⚠ {notes}" if notes else "")
+        if notes:
+            return f"⚠ {notes}"
         return "✅ This pattern works. Every row's stitch count checks out."
     if v.kind == "works_unverified":
         which = _rows(word, v.rows)
@@ -99,7 +113,7 @@ def user_message(report: PatternReport) -> str:
         clauses = _interpretations(v, word)
         if clauses:
             text += " They also assume " + ", and ".join(clauses) + "."
-        return text
+        return text + (f" ⚠ {notes}" if notes else "")
     if v.kind == "ambiguous":
         return _ambiguous(v, word)
     if v.kind == "breaks":

@@ -84,18 +84,18 @@ def test_multi_size_count_is_not_checked():
 
 
 # ---- bare counts and chains ----
-def test_bare_count_may_include_chains():
+def test_bare_count_may_include_chains_as_a_fallback():
     lines = [("Ch 11.", True), ("Row 1: sc across, ch 1, turn (10)", True), ("Row 2: sc across (11)", True)]
     infos = [info(0, 11, ch=11), info(1, 10), info(2, 11, ch=1, sc=10)]
     v, stated, computed = run(lines, infos)
-    assert v.kind == "works"
+    assert v.kind == "works" and v.chains_counted
     assert stated == {1: 10, 2: 11} and computed == {1: 10, 2: 11}  # row 0 is the foundation chain
 
 
 def test_bare_count_may_leave_chains_out():
     lines = [("Ch 11.", True), ("Row 1: sc across (10)", True), ("Row 2: sc across (10)", True)]
     v, _, computed = run(lines, [info(0, 11, ch=11), info(1, 10), info(2, 11, ch=1, sc=10)])
-    assert v.kind == "works" and computed[2] == 10
+    assert v.kind == "works" and computed[2] == 10 and not v.chains_counted
 
 
 def test_typed_count_counts_that_stitch_only():
@@ -106,47 +106,92 @@ def test_typed_count_counts_that_stitch_only():
     assert (v.kind, v.row) == ("breaks", 3)  # 11 sc is wrong even though 11 counts the chain
 
 
-# ---- the turning-chain reading is chosen by majority ----
-def dc_rows(*stated):
-    """A foundation chain, then dc rows of 13 dc after a 3-chain; each row states its own count."""
-    lines = [("Ch 15.", True), ("Row 1: dc in 4th ch from hook and across (13)", True)]
-    infos = [info(0, 15, ch=15), info(1, 13, dc=13)]
+# ---- the turning chain: not counted, unless the pattern says so or the counts fit only that way ----
+def dc_rows(first, *stated, say=""):
+    """Ch 16 and dc rows of 13 dc after a 3-chain; every row states its own count. Row 1 ("dc in
+    4th ch from hook") makes 13 dc from the 13 chains it can use, 14 if the skipped chains count."""
+    lines = [("Ch 16.", True), (f"Row 1: dc in 4th ch from hook and across ({first})", True)]
+    infos = [info(0, 16, ch=16), info(1, 13, dc=13)]
     for n, count in enumerate(stated, 2):
-        lines.append((f"Row {n}: ch 3, dc across ({count})", True))
+        lines.append((f"Row {n}: ch 3{say}, dc across ({count})", True))
         infos.append(info(n, 16, ch=3, dc=13))
     return lines, infos
 
 
-def test_turning_chain_not_counted_when_the_counts_say_so():
-    v, _, computed = run(*dc_rows(13, 13, 13))
-    assert (v.kind, v.reading) == ("works", PLAIN) and computed[3] == 13
+def test_turning_chain_is_not_counted_by_default():
+    v, _, computed = run(*dc_rows(13, 13, 13, 13))
+    assert (v.kind, v.reading) == ("works", "") and computed[3] == 13
 
 
-def test_turning_chain_counted_when_most_counts_say_so():
-    v, _, computed = run(*dc_rows(14, 14, 14))
+def test_turning_chain_counted_as_a_fallback_when_the_counts_fit_only_that_way():
+    v, _, computed = run(*dc_rows(14, 14, 14, 14))
     assert v.kind == "works" and v.reading == TURN_COUNTS
-    assert computed[2] == 14 and "turning chain counts as a stitch" in v.message
+    assert computed[1] == 14 and computed[2] == 14 and "turning chain counts as a stitch" in v.message
+
+
+def test_the_pattern_saying_counts_as_settles_it_with_no_fallback_note():
+    v, _, computed = run(*dc_rows(14, 14, 14, say=" (counts as first dc)"))
+    assert (v.kind, v.reading) == ("works", "") and computed[2] == 14
+    v, _, _ = run(*dc_rows(14, 13, 13, say=" (does not count as a st)"))
+    assert (v.kind, v.row) == ("breaks", 1)  # the pattern says no, so row 1's 14 is wrong
+
+
+def test_code_that_already_writes_the_counted_chain_as_a_stitch_needs_no_fallback():
+    lines = [("Ch 17.", True), ("Row 1: dc in 4th ch from hook and across (15)", True),
+             ("Row 2: ch 3 (counts as dc), dc across (15)", True)]
+    v, _, computed = run(lines, [info(0, 17, ch=17), info(1, 15, dc=15), info(2, 15, dc=15)])
+    assert (v.kind, v.reading) == ("works", "") and computed == {1: 15, 2: 15}
+
+
+def test_counts_as_in_a_round_with_corner_chains_does_not_invent_a_stitch():
+    # the starting ch 3 is written as a dc already; the corner chains are not a turning chain
+    lines = [("Round 1: in a ring, ch 3 (counts as dc), 2 dc, ch 2, 3 dc (12 dc)", True),
+             ("Round 2: ch 3 (counts as dc), dc in each st, 2 dc in each ch-2 space (20 dc)", True)]
+    v, _, computed = run(lines, [info(1, 14, dc=12, ch=2), info(2, 26, dc=20, ch=6)])
+    assert (v.kind, v.reading) == ("works", "") and computed == {1: 12, 2: 20}
+
+
+def test_counts_as_on_a_row_coded_with_its_chain_adds_the_stitch():
+    lines = [("Ch 16.", True), ("Row 1: dc in 4th ch from hook and across (14)", True),
+             ("Row 2: ch 3 (counts as first dc), dc across (14)", True)]
+    v, _, computed = run(lines, [info(0, 16, ch=16), info(1, 13, dc=13), info(2, 16, ch=3, dc=13)])
+    assert (v.kind, v.reading) == ("works", "") and computed == {1: 14, 2: 14}  # the pattern said so: no warning
 
 
 def test_minority_rows_break_under_the_majority_reading():
-    lines, infos = dc_rows(14, 14, 13, 14)  # row 4 follows the other habit
+    lines, infos = dc_rows(14, 14, 14, 13, 14)  # row 4 follows the other habit
     v, _, _ = run(lines, infos)
     assert (v.kind, v.row, v.reading) == ("breaks", 4, TURN_COUNTS)
     assert "pattern says 13, the instructions make 14" in v.message
-    v, _, _ = run(*dc_rows(13, 13, 14, 13))  # and the other way round
-    assert (v.kind, v.row, v.reading) == ("breaks", 4, PLAIN)
+    v, _, _ = run(*dc_rows(13, 13, 13, 14, 13))  # and the other way round: the default
+    assert (v.kind, v.row, v.reading) == ("breaks", 4, "")
 
 
 def test_equally_good_readings_that_disagree_are_ambiguous():
-    v, _, _ = run(*dc_rows(14, 13))  # row 2 follows one habit, row 3 the other
+    v, _, _ = run(*dc_rows(13, 14))  # row 1 follows one habit, row 2 the other
     assert v.kind == "ambiguous"
-    assert v.row == 2 and len(v.readings) == 2
+    assert v.row == 1 and len(v.readings) == 2
     assert any(PLAIN in r for r in v.readings) and any(TURN_COUNTS in r for r in v.readings)
 
 
 def test_a_single_turned_row_follows_the_reading_that_fits():
     v, _, _ = run(*dc_rows(14))
     assert (v.kind, v.reading) == ("works", TURN_COUNTS)
+    v, _, _ = run(*dc_rows(14, 14))
+    assert (v.kind, v.reading) == ("works", TURN_COUNTS)
+
+
+# ---- bare counts leave chain spaces out; counting them is a flagged fallback ----
+def test_bare_count_that_fits_only_with_chains_passes_with_a_note():
+    v, _, _ = run(*chain_rows(10))
+    assert v.kind == "works" and v.chains_counted
+    v, _, _ = run(*chain_rows(9))  # without the chain
+    assert v.kind == "works" and not v.chains_counted
+
+
+def chain_rows(second):
+    lines = [("Ch 11.", True), ("Row 1: sc across (10)", True), (f"Row 2: sc, ch 1, turn ({second})", True)]
+    return lines, [info(0, 11, ch=11), info(1, 10), info(2, 10, ch=1, sc=9)]
 
 
 # ---- unreadable versus breaks before the unreadable row ----

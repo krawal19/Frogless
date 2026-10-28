@@ -114,3 +114,22 @@ def test_nothing_flagged_makes_no_call(monkeypatch, tmp_path):
     rows = [make_rows()[0]]
     fake, out, cost = run(monkeypatch, tmp_path, [], rows)
     assert fake.calls == [] and cost == 0 and out == rows
+
+
+def test_a_reply_that_used_the_whole_budget_is_retried_with_the_larger_one(tmp_path, monkeypatch):
+    from frogless.pipeline import translate
+
+    calls = []
+
+    def fake_chat(role, messages, **kw):
+        calls.append(kw.get("max_tokens"))
+        if len(calls) == 1:
+            return {"text": "", "usage": {"output_tokens": 4000}, "cost_usd": 0.01}
+        return {"text": '{"code": "6sc"}', "usage": {"output_tokens": 900}, "cost_usd": 0.02}
+
+    monkeypatch.setattr(translate, "chat", fake_chat)
+    monkeypatch.setattr(translate, "load_config", lambda: {"roles": {"translator": {
+        "model": "m", "max_tokens": 4000, "max_tokens_retry": 8000}}})
+    reply, cost = translate.ask_cached("x <pattern> y", "translator", translate.ANSWER_SCHEMA, tmp_path, "t")
+    assert calls == [None, 8000]
+    assert reply["text"] == '{"code": "6sc"}' and round(cost, 2) == 0.03

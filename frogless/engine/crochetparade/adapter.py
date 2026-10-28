@@ -54,7 +54,7 @@ class CrochetEngine(Engine):
         return json.loads(proc.stdout)
 
     def check(self, code: str) -> CheckResult:
-        out = self._run_bridge({"op": "check", "code": code})
+        out = self._run_bridge({"op": "check", "code": _chain_after_turn(code)})
         warnings = [w.strip() for w in out["warnings"]]
         if not out["ok"]:
             return CheckResult(ok=False, error=_parse_error(out["error"]), warnings=warnings)
@@ -76,7 +76,7 @@ class CrochetEngine(Engine):
         )
 
         lines = []
-        for row in build_browser_review_model(text)["rows"]:
+        for row in build_browser_review_model(_label_rows(text))["rows"]:
             cand = next(
                 (c for c in row["candidates"] if c["id"] == row.get("selectedId")),
                 row["candidates"][0],
@@ -131,6 +131,43 @@ class CrochetEngine(Engine):
 
 ROW_SOURCE = re.compile(r"^row\b", re.IGNORECASE)
 ENDS_WITH_TURN = re.compile(r"(^|,)\s*turn\s*$")
+# "Ch 21." on a line of its own: a foundation chain
+FOUNDATION_LINE = re.compile(r"^\s*(?:ch|chain)\s*\d+\s*[.;]?\s*$", re.IGNORECASE | re.MULTILINE)
+TURNS = re.compile(r"\bturn(?:ing)?\b(?!\s+chain)", re.IGNORECASE)
+RINGS = re.compile(r"\b(?:magic\s+)?(?:ring|circle)\b|\bmr\b", re.IGNORECASE)
+# "R1:", "R2-5 (RS):" at the start of a line
+R_LABEL = re.compile(r"^(\s*)R\s*(?=\d+(?:\s*[-–]\s*\d+)?\s*[:(])", re.IGNORECASE | re.MULTILINE)
+
+
+def _label_rows(text):
+    """Flat pieces call their rows "R1:", "R2-5:", which the translator reads as rounds ("rnd").
+    A pattern with a foundation chain line or "turn" and no ring is worked in rows, so say "Row"."""
+    if (FOUNDATION_LINE.search(text) or TURNS.search(text)) and not RINGS.search(text):
+        return R_LABEL.sub(r"\1Row ", text)
+    return text
+
+
+TRAILING_CHAIN = re.compile(r"^(?P<body>.+?),(?P<chain>\d*ch),turn$")
+LEADING_CHAIN = re.compile(r"^\d*ch(,|$)")
+
+
+def _chain_after_turn(code):
+    """Put a turning chain written before "turn" at the start of the next row, where it belongs.
+
+    "dc across, ch 3, turn" is code `14dc,3ch,turn`, but the language makes the next row work into
+    that chain. The chain is the next row's turning chain: `14dc,turn` then `3ch,14dc`. A row that
+    already starts with a chain keeps its own; after the piece's last row there is no row for it.
+    """
+    lines = code.splitlines()
+    for i, line in enumerate(lines):
+        m = TRAILING_CHAIN.match(line.strip())
+        if not m:
+            continue
+        lines[i] = f"{m['body']},turn"
+        nxt = next((j for j in range(i + 1, len(lines)) if lines[j].strip()), None)
+        if nxt is not None and not LEADING_CHAIN.match(lines[nxt].strip()):
+            lines[nxt] = f"{m['chain']},{lines[nxt].strip()}"
+    return "\n".join(lines)
 
 
 def _turn_rows(lines):

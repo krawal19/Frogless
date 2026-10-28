@@ -2,6 +2,7 @@
 
 import json
 
+from frogless.engine import CheckError, CheckResult
 from frogless.pipeline import faithful, translate
 from frogless.pipeline.faithful import check_faithfulness
 from frogless.pipeline.report import RowResult
@@ -14,13 +15,19 @@ class FakeEngine:
     def describe(self, code):
         return [f"ENGLISH({line})" for line in code.splitlines() if line.strip()]
 
+    def check(self, code):
+        bad = next((l for l in code.splitlines() if l.startswith("inc")), None)
+        if bad:
+            return CheckResult(ok=False, error=CheckError(f"invalid stitch {bad}", row=1, kind="invalid"))
+        return CheckResult(ok=True)
+
 
 TEXT = "Round 1: 6 sc in ring (6)\nRound 2: weird thing\nRound 3: sc around"
 
 
 def rows():
     return [
-        RowResult(index=0, source="Round 1: 6 sc in ring (6)", code="(6sc)@R0", origin="rules"),
+        RowResult(index=0, source="make a magic ring.", code="ring.R0", origin="rules", synthetic=True),
         RowResult(index=1, source="Round 2: weird thing", code="12sc", origin="model"),
         RowResult(index=2, source="Round 3: sc around", code="12sc", origin="rules"),
     ]
@@ -54,8 +61,8 @@ def run(monkeypatch, tmp_path, replies, rows_in=None, text=TEXT, engine=None):
     return fake, out, cost
 
 
-def test_only_model_rows_and_countless_rule_rows_are_sent(monkeypatch, tmp_path):
-    # row 0 (rules, states a count) is skipped; row 1 (model) and row 2 (rules, "sc around" states none) are sent
+def test_every_coded_row_is_sent_but_the_added_ring(monkeypatch, tmp_path):
+    # row 0 (the ring the translator adds) is skipped; row 1 (model) and row 2 (rules) are sent
     fake, out, cost = run(monkeypatch, tmp_path, [verdict("faithful"), verdict("faithful")])
     assert [c["role"] for c in fake.calls] == ["faithfulness", "faithfulness"]
     assert fake.calls[0]["json_schema"] == faithful.ANSWER_SCHEMA
@@ -63,9 +70,35 @@ def test_only_model_rows_and_countless_rule_rows_are_sent(monkeypatch, tmp_path)
     assert "Round 2: weird thing" in row_part and "ENGLISH(12sc)" in row_part
     assert "Round 1: 6 sc in ring" not in row_part
     assert [r.faithful for r in out] == [None, True, True]
-    assert out[0].english == ""  # the stated-count gate vouches for it
+    assert out[0].english == ""  # nothing written to compare
     assert out[1].english == "ENGLISH(12sc)" and out[2].english == "ENGLISH(12sc)"  # only its own sentence
     assert cost == 0.02
+
+
+def test_a_rules_row_that_states_a_count_is_checked_too(monkeypatch, tmp_path):
+    rs = [RowResult(index=0, source="Round 1: 6 sc in ring (6)", code="(6sc)@R0", origin="rules")]
+    fake, out, _ = run(monkeypatch, tmp_path, [verdict("faithful")], rs, "Round 1: 6 sc in ring (6)")
+    assert len(fake.calls) == 1 and out[0].faithful is True
+
+
+def test_code_the_engine_rejects_is_translated_again_with_its_message(monkeypatch, tmp_path):
+    rs = rows()
+    rs[1] = RowResult(index=1, source="Round 2: inc in each st", code="inc", origin="model")
+    replies = [code("6*[sc2inc]"), verdict("faithful"), verdict("faithful")]  # no checker call for "inc"
+    fake, out, _ = run(monkeypatch, tmp_path, replies, rs)
+    assert [c["role"] for c in fake.calls] == ["translator", "faithfulness", "faithfulness"]
+    assert "the checker rejected your code `inc`: invalid stitch inc" in fake.calls[0]["prompt"]
+    assert (out[1].code, out[1].origin, out[1].faithful) == ("6*[sc2inc]", "model", True)
+
+
+def test_rejected_code_shares_the_three_attempts_and_ends_unreadable(monkeypatch, tmp_path):
+    rs = rows()
+    rs[1] = RowResult(index=1, source="Round 2: inc in each st", code="inc", origin="model")
+    replies = [code("inc2"), code("inc3"), verdict("faithful")]  # attempts 2 and 3; row 2 is still checked
+    fake, out, _ = run(monkeypatch, tmp_path, replies, rs)
+    assert sum(c["role"] == "translator" for c in fake.calls) == 2
+    assert (out[1].status, out[1].code) == ("cannot", "")
+    assert "rejected" in out[1].note and "invalid stitch inc" in out[1].note
 
 
 def test_synthetic_and_codeless_rows_are_skipped(monkeypatch, tmp_path):
@@ -122,8 +155,8 @@ def test_silent_fix_is_a_mismatch_and_ends_as_unreadable(monkeypatch, tmp_path):
     rs = [RowResult(index=0, source="Round 1: 6 sc in ring (6)", code="(6sc)@R0"),
           RowResult(index=1, source="Round 2: 13 sc (13)", code="12sc", origin="model")]
     reason = "the row says 13 sc but the code makes 12"
-    replies = [verdict("mismatch", reason=reason), code("12sc"), verdict("mismatch", reason=reason),
-               code("12sc"), verdict("mismatch", reason=reason)]
+    replies = [verdict("faithful"), verdict("mismatch", reason=reason), code("12sc"),
+               verdict("mismatch", reason=reason), code("12sc"), verdict("mismatch", reason=reason)]
     _, out, _ = run(monkeypatch, tmp_path, replies, rs, text)
     assert out[1].status == "cannot" and "13 sc but the code makes 12" in out[1].note
 

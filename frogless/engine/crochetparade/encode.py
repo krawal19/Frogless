@@ -17,8 +17,9 @@ def encode(spec) -> str:
         if spec.start == "ring":
             line = f"({body})@R0" if i == 0 else body
         else:  # flat rows: skip chains in row 1, turning chain after that, turn at the end
-            # A turning chain that counts as a stitch is written as that stitch: the row's stitches
-            # include it, and in row 1 the skipped chains give one stitch less to skip.
+            # By default the turning chain is not counted: `3sk,14dc` in row 1 ("dc in 4th ch from hook"),
+            # then `3ch,14dc`. Where the pattern says it counts as a stitch (spec.turn_counts) it is written
+            # as that stitch: the row's stitches include it, and in row 1 there is one fewer chain to skip.
             if i == 0:
                 lead = f"{skipped(spec) - spec.turn_counts}sk,"
             else:

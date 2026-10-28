@@ -190,8 +190,11 @@ def test_foundation_rows_with_skips():
         "Row 1: sc in 2nd ch from hook and in each ch across, ch 1, turn."
     )
     assert describe("15ch\nsk,14hdc,turn")[1] == "Row 1: hdc in 3rd ch from hook and in each ch across, turn."
-    # skipped chains that do not count as a stitch are said literally, in chains
-    assert describe("11ch\n3sk,8dc,turn")[1] == "Row 1: skip next 3 ch, dc in next 8 ch, turn."
+    # the turning chain is not counted: dc in the 4th ch from hook skips 3, hdc in the 3rd skips 2
+    assert describe("11ch\n3sk,8dc,turn")[1] == "Row 1: dc in 4th ch from hook and in each ch across, turn."
+    assert describe("16ch\n2sk,14hdc,turn")[1] == "Row 1: hdc in 3rd ch from hook and in each ch across, turn."
+    # any other skip is said literally, in chains
+    assert describe("11ch\n4sk,7dc,turn")[1] == "Row 1: skip next 4 ch, dc in next 7 ch, turn."
     assert describe("11ch\nsk,3*[dc,ch,sk],turn")[1] == (
         "Row 1: skip next ch, (dc in next ch, ch 1, skip next ch) 3 times, turn."
     )

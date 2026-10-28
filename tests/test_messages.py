@@ -89,3 +89,22 @@ def test_real_pattern_end_to_end_without_a_model():
     # without a model the row stays flagged by the stated-count gate, so it cannot be judged
     assert user_message(bad).startswith("❓ We couldn't read Round 2 (")
     assert user_message(bad).endswith("Everything before it checks out.")
+
+
+def test_turning_chain_fallback_is_flagged_not_a_silent_pass():
+    msg = user_message(report(Verdict("works", "ok", reading=TURN_COUNTS)))
+    assert msg == "⚠ Works only if the turning chain counts as a stitch."
+    msg = user_message(report(Verdict("works_unverified", "x", rows=[3], reading=TURN_COUNTS), n=5))
+    assert msg.startswith("✅ Stitch counts check out, but Round 3 was read by AI")
+    assert msg.endswith("⚠ Works only if the turning chain counts as a stitch.")
+
+
+def test_chain_space_fallback_is_flagged():
+    assert user_message(report(Verdict("works", "ok", chains_counted=True))) == (
+        "⚠ The counts only work if the chain spaces are counted.")
+    both = Verdict("works", "ok", reading=TURN_COUNTS, chains_counted=True)
+    assert user_message(report(both)) == ("⚠ Works only if the turning chain counts as a stitch. "
+                                          "The counts only work if the chain spaces are counted.")
+    interp = Verdict("works", "ok", chains_counted=True,
+                     interpreted=[Interpreted(2, "Round 2: sc in the gap (12)", "sc in each of the 12 sts", "no gap")])
+    assert user_message(report(interp)).endswith("⚠ The counts only work if the chain spaces are counted.")

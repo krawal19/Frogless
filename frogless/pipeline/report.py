@@ -47,7 +47,8 @@ class Verdict:
     row: int | None = None  # the pattern's row/round number where it breaks
     readings: list[str] = field(default_factory=list)  # for "ambiguous": the readings that fit
     alternatives: list[Alternative] = field(default_factory=list)  # for "ambiguous": each reading's outcome
-    reading: str = ""  # counting convention the verdict was reached under ("" if it did not matter)
+    reading: str = ""  # TURN_COUNTS when only that reading fit the stated counts (a fallback); "" otherwise
+    chains_counted: bool = False  # some bare count fits only with the chain spaces counted (a fallback)
     interpreted: list[Interpreted] = field(default_factory=list)  # rows the code had to read one way
     rows: list[int] = field(default_factory=list)  # for "works_unverified": rows the model wrote and nothing confirmed
 

@@ -507,9 +507,10 @@ def _round_text(items, ctx):
 
 
 _FROM_HOOK = {"sc": "2nd", "hdc": "3rd", "dc": "4th"}
-# Skips before the first stitch that mean "stitch in the Nth ch from hook" (the skipped
-# chains count as the turning chain, so dc skips 2, not 3).
-_HOOK_SKIPS = {"sc": (0, 1), "hdc": (1,), "dc": (2,)}
+# Skips before the first stitch that mean "stitch in the Nth ch from hook": the skipped chains are
+# the turning chain (hdc skips 2, dc skips 3), or one fewer when the turning chain counts as a
+# stitch (hdc 1, dc 2, written as that stitch).
+_HOOK_SKIPS = {"sc": (0, 1), "hdc": (1, 2), "dc": (2, 3)}
 
 
 def _foundation_row_text(chains, items, ctx):
@@ -522,8 +523,8 @@ def _foundation_row_text(chains, items, ctx):
         tail_ok = all(
             isinstance(i, Atom) and i.name in ("ch", "turn") and not i.attach and not i.labels for i in rest[1:]
         )
-        # sc/hdc skip 1 ch and work chains-1 stitches; dc skips 2 and works chains-2.
-        worked = chains - (2 if s.name == "dc" else 1)
+        # the stitches worked are the chains left after the skipped ones (sc: after the 1st)
+        worked = chains - (1 if s.name == "sc" else skipped)
         if tail_ok and skipped in _HOOK_SKIPS[s.name] and s.n == worked:
             head = f"{s.name} in {_FROM_HOOK[s.name]} ch from hook and in each ch across"
             tail = _items_text(rest[1:], replace(ctx, unit="st"))

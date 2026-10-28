@@ -4,8 +4,13 @@ Code -> English via the engine's describe(), then a model compares it with the o
 row (one call per row). On a mismatch the row is translated again, told what was wrong; after
 three translation attempts in all, the row is marked unreadable rather than guessed at.
 
-Which rows: every row the model translated, and rule rows that state no count (the stated-count
-gate vouches for rows that do). A mismatching rule row goes to the model translator once.
+Which rows: every row that has code (the model's and the rules translator's, also rules rows that
+state a count; only the magic ring the translator adds itself is skipped). A mismatching rule row goes
+to the model translator once.
+
+Before the checker is asked, code the model wrote is run through the engine (this row's code after
+the rows before it). If the engine rejects it as invalid (an unknown stitch name, say) the row is
+translated again, told the engine's message. That takes one of the three attempts too.
 """
 
 import json
@@ -14,7 +19,6 @@ from pathlib import Path
 
 from ..engine import Engine
 from ..models.client import ROOT
-from ..patterns.stated import stated_count
 from .report import RowResult
 from .translate import CACHE_DIR as TRANSLATE_CACHE_DIR
 from .translate import ask_cached, retranslate_row
@@ -40,9 +44,18 @@ _UNSUPPORTED_NOTE = (
 
 
 def _needs_check(row: RowResult) -> bool:
-    if row.synthetic or row.status != "ok" or not row.code:
-        return False
-    return row.origin == "model" or stated_count(row.source) is None
+    return not row.synthetic and row.status == "ok" and bool(row.code)
+
+
+def _rejection(engine: Engine, rows: list[RowResult], i: int) -> str:
+    """Why the engine rejects row i's code (with the rows before it), or "" if it accepts it.
+    Only invalid code counts; a wrong stitch count is left to the verdict."""
+    if rows[i].origin != "model":
+        return ""
+    check = engine.check("\n".join(r.code for r in rows[:i + 1] if r.code))
+    if check.error is not None and check.error.kind == "invalid":
+        return check.error.message
+    return ""
 
 
 def _english(engine: Engine, rows: list[RowResult], i: int) -> list[str]:
@@ -57,11 +70,16 @@ def _english(engine: Engine, rows: list[RowResult], i: int) -> list[str]:
     return lines[-own:] if len(lines) >= own else engine.describe(rows[i].code)
 
 
-def _judge(guide: str, text: str, row: RowResult, english: list[str], cache_dir: Path) -> tuple[dict, float]:
-    """One model call (or the cached reply): the checker's answer as a dict with a "verdict"."""
+def _judge(guide: str, text: str, row: RowResult, english: list[str], cache_dir: Path,
+           context: str = "") -> tuple[dict, float]:
+    """One model call (or the cached reply): the checker's answer as a dict with a "verdict".
+    `context` is extra text for the checker, placed just before it gives its verdict."""
     prompt = PROMPT.read_text(encoding="utf-8").format(
         guide=guide, original=text.strip(), source=row.source, english="\n".join(english),
         unsupported=_UNSUPPORTED_NOTE if any(l.startswith("UNSUPPORTED") for l in english) else "")
+    if context:
+        head, _, tail = prompt.rpartition("Give your verdict now.")
+        prompt = f"{head}{context.strip()}\n\nGive your verdict now.{tail}"
     reply, cost = ask_cached(prompt, ROLE, ANSWER_SCHEMA, cache_dir, "faithful_row")
     try:
         answer = json.loads(reply["text"])
@@ -98,6 +116,18 @@ def check_faithfulness(engine: Engine, text: str, rows: list[RowResult], cache_d
     for i in range(len(rows)):
         attempts = 1  # the translation we were given
         while _needs_check(rows[i]):
+            rejected = _rejection(engine, rows, i)
+            if rejected:
+                if attempts >= MAX_ATTEMPTS:
+                    rows[i] = replace(rows[i], status="cannot", code="",
+                                      note=f"couldn't read this row reliably: the code was rejected ({rejected})")
+                    break
+                attempts += 1
+                rows[i], cost = retranslate_row(
+                    engine, text, rows, i, f"the checker rejected your code `{rows[i].code}`: {rejected}",
+                    translate_cache_dir)
+                total += cost
+                continue
             english = _english(engine, rows, i)
             if all(line.startswith("UNSUPPORTED") for line in english):  # nothing to compare: skip the call
                 answer, cost = {"verdict": "cannot_tell", "reading": "",

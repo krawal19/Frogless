@@ -105,3 +105,24 @@ def test_bare_count_may_include_chains_but_typed_count_may_not():
     granny = SimpleNamespace(stitch_count=20, stitch_types={"dc": 12, "ch": 8})
     assert row_counts(granny, None) == [12, 20]  # "(12)" or "(20)" both fit
     assert row_counts(granny, "dc") == [12]  # "(12 dc)" counts dc only
+
+
+def test_bare_count_leaves_chains_out_first_and_counting_them_is_the_fallback():
+    from types import SimpleNamespace
+
+    from frogless.pipeline.gate import row_counts
+
+    row = SimpleNamespace(stitch_count=15, stitch_types={"dc": 12, "ch": 3})
+    assert row_counts(row, None)[0] == 12  # the default reading; 15 is the fallback, second
+
+
+def test_what_a_line_says_about_its_turning_chain():
+    from frogless.patterns.stated import turning_chain_says as says
+
+    assert says("Row 2: ch 3 (counts as first dc), dc across") is True
+    assert says("Row 2: ch 2 (counts as a st), hdc in each st") is True
+    assert says("Rnd 2: ch 5 (counts as dc + ch 2), dc in next st") is True
+    assert says("Row 2: ch 3 (does not count as a st), dc across") is False
+    assert says("Row 2: ch 3 doesn't count as dc, dc across") is False
+    assert says("Row 2: ch 3, dc across") is None
+    assert says("Rnd 3: 6 sc counts as one repeat") is None  # nothing about a chain

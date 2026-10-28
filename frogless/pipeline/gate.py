@@ -31,14 +31,16 @@ def row_counts(row, stitch: str | None) -> list[int]:
 
     A typed count ("24 dc") is only that type. A bare count ("(24)") is all stitches;
     designers differ on whether chains (corner spaces) are included, so both readings
-    are accepted.
+    are accepted. Slip stitches (joins) are never counted, unless the row is only those.
     """
     types = row.stitch_types
     if stitch is not None:  # "sc" also covers variants the engine names e.g. sc2inc, sc2tog
         return [sum(n for name, n in types.items() if name.startswith(stitch))]
-    if set(types) <= {"ch"}:
+    if set(types) <= {"ch"} or set(types) <= {"ss"}:
         return [row.stitch_count]
-    return [row.stitch_count - types.get("ch", 0), row.stitch_count]
+    slips = sum(n for name, n in types.items() if name.startswith("ss"))
+    total = row.stitch_count - slips
+    return [total - types.get("ch", 0), total]
 
 
 def gate_translation(engine: Engine, result: TranslateResult, original_text: str = "") -> TranslateResult:

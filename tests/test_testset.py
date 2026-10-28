@@ -29,7 +29,7 @@ def test_generators_make_valid_working_specs():
         assert isinstance(spec, Spec) and spec.rows
         assert exp == {"verdict": "works", "break_row": None, "counts": [made(r) for r in spec.rows]}
         assert case["english"].count("\n") >= len(spec.rows) // 3  # ranges can merge lines
-    assert {c["family"] for c in BASES} == {"circle", "ball", "rows", "rows_hdc", "rows_dc"}
+    assert {c["family"] for c in BASES} == {"circle", "ball", "rows", "rows_hdc", "rows_dc", "rows_dc_counted"}
 
 
 def test_circle_counts_follow_arithmetic():
@@ -79,12 +79,38 @@ def test_wrong_count_keeps_the_original_stated_count():
     assert case["expected"]["counts"][r - 1] == case["stated"][r - 1] + 1
 
 
-def test_counted_turning_chain_is_left_out_of_partial_rows():
-    # "ch 2, hdc in next 7 sts" makes 8: the ch 2 is the row's first stitch
+def test_default_rows_name_every_stitch_and_do_not_count_the_turning_chain():
+    # "ch 2, hdc in next 8 sts" makes 8: the turning chain is not a stitch
     case = next(c for c in injected_cases(CFG, BASES) if c["id"].startswith("rows-hdc") and c["injection"] == "missing_stitch")
     r = case["expected"]["break_row"]
     row = case["english"].splitlines()[r]  # line 0 is the foundation chain
-    assert f"in next {case['expected']['counts'][r - 1] - 1} sts" in row
+    assert f"in next {case['expected']['counts'][r - 1]} sts" in row
+    assert "counts as" not in case["english"]
+
+
+def test_foundation_chains_follow_the_unwritten_convention():
+    chains = {c["id"]: c["spec"].chain for c in BASES if c["family"].startswith("rows")}
+    assert chains["rows-10x10"] == 11 and chains["rows-hdc-12x8"] == 14 and chains["rows-dc-14x6"] == 17
+    assert chains["rows-dc-counted-14x6"] == 16  # the skipped chains count as one stitch
+    assert 'dc in 4th ch from hook' in BY_ID["rows-dc-14x6"]["english"]
+    assert BY_ID["rows-dc-14x6"]["expected"]["counts"] == [14] * 6
+
+
+def test_counted_family_says_so_on_every_row_after_the_first():
+    case = BY_ID["rows-dc-counted-11x8"]
+    lines = case["english"].splitlines()[2:]  # after the foundation chain and row 1
+    assert len(lines) == 7 and all("ch 3 (counts as first dc)" in l for l in lines)
+    engine = get_engine()
+    code = engine.encode(case["spec"])
+    assert code.splitlines()[1] == "2sk,11dc,turn" and code.splitlines()[2] == "11dc,turn"
+    result = engine.check(code)
+    assert result.ok and counts_of(result) == [11] * 8
+
+
+def test_counted_family_partial_rows_name_one_stitch_fewer():
+    case = inject(BY_ID["rows-dc-counted-11x8"], "missing_stitch", random.Random(1))
+    r = case["expected"]["break_row"]
+    assert f"in next {case['expected']['counts'][r - 1] - 1} sts" in case["english"].splitlines()[r]
 
 
 def test_known_gap_tags_and_case_total():

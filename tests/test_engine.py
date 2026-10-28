@@ -71,3 +71,34 @@ def test_rounds_are_not_turned():
 def test_stitches_lists_basics():
     names = get_engine().stitches()
     assert {"sc", "dc", "ch"} <= set(names)
+
+
+def test_r_labels_on_a_flat_piece_become_rows():
+    import sys
+
+    _label_rows = sys.modules[type(get_engine()).__module__]._label_rows  # the adapter's own helper
+
+    flat = "Ch 21.\nR1: sc in 2nd ch from hook, turn (20)\nR2-5 (RS): ch 1, sc across (20)"
+    assert _label_rows(flat) == "Ch 21.\nRow 1: sc in 2nd ch from hook, turn (20)\nRow 2-5 (RS): ch 1, sc across (20)"
+    turned = "R1: sc in 2nd ch from hook\nR2: ch 1, sc across, turn"
+    assert _label_rows(turned).startswith("Row 1:")
+    rounds = "R1: 6 sc in a magic ring\nR2: 2 sc in each st around"
+    assert _label_rows(rounds) == rounds  # a ring: rounds stay rounds
+    assert _label_rows("R1: sc around (6)\nR2: inc around (12)") == "R1: sc around (6)\nR2: inc around (12)"
+
+
+def test_flat_r_rows_are_translated_as_rows_and_turned():
+    lines = get_engine().translate("Ch 21.\nR1: sc in 2nd ch from hook, turn (20)\nR2-3: ch 1, sc in each st across (20)").lines
+    assert [l.source.split(":")[0] for l in lines[1:]] == ["row 1", "row 2-3", "row 2-3"]
+    assert lines[2].code.endswith(",turn") and not lines[3].code.endswith("turn")
+
+
+def test_turning_chain_written_before_turn_belongs_to_the_next_row():
+    engine = get_engine()
+    written = "17ch\n3sk,14dc,3ch,turn\n14dc,3ch,turn\n14dc"  # "..., ch 3, turn" at the end of each row
+    result = engine.check(written)
+    assert result.ok, result.error
+    assert [r.stitch_types.get("ch", 0) for r in result.rows] == [17, 0, 3, 3]
+    assert [r.stitch_count - r.stitch_types.get("ch", 0) for r in result.rows[1:]] == [14, 14, 14]
+    # a row that already starts with its chain keeps it
+    assert engine.check("11ch\nsk,10sc,ch,turn\nch,10sc").ok

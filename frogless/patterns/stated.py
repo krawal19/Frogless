@@ -57,3 +57,19 @@ def stated_count(line: str) -> StatedCount | None:
             word = m.groupdict().get("type")
             return StatedCount(int(m["n"]), _TYPES.get(word) if word else None, multi_size=kind == "multi")
     return None
+
+
+# "ch 3 (counts as first dc)", "turning chain counts as a st" / "does not count as a stitch"
+_COUNTS_AS = re.compile(r"\bcount(?:s|ed|ing)?\s+as\b")
+_NOT_COUNTS_AS = re.compile(r"(?:\bnot|n't|\bnever|\bwithout)\s+(?:\w+\s+){0,2}?count(?:s|ed|ing)?\s+as\b")
+
+
+def turning_chain_says(line: str) -> bool | None:
+    """What a line says about its chain counting as a stitch: True ("ch 3 (counts as dc)"),
+    False ("ch 3 (does not count as a st)") or None (nothing)."""
+    text = _LABEL.sub("", line.lower().strip(), count=1)
+    if not re.search(r"\bch(?:ain|s)?\b", text):
+        return None
+    if _NOT_COUNTS_AS.search(text):
+        return False
+    return True if _COUNTS_AS.search(text) else None

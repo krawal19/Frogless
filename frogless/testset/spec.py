@@ -31,7 +31,7 @@ class Spec:
     rows: list = field(default_factory=list)  # each row is a list of Item / Repeat
     chain: int = 0  # foundation chain length, when start == "chain"
     stitch: str = "sc"  # main stitch; sets the turning chain and skipped chains for rows
-    turn_counts: bool = False  # hdc/dc rows: the turning chain counts as the row's first stitch
+    turn_counts: bool = False  # hdc/dc rows: the pattern says the turning chain counts as the row's first stitch
 
 
 def consumed(items) -> int:
@@ -60,8 +60,9 @@ def skipped(spec) -> int:
 
 
 def foundation_stitches(spec) -> int:
-    """Stitches row 1 can make from the foundation chain. With a counting turning chain
-    the skipped chains count as one stitch (Ch 17 gives 15 dc); for sc they do not."""
+    """Stitches row 1 can make from the foundation chain. By default the skipped chains are the
+    turning chain and do not count (Ch 17 gives 14 dc, "dc in 4th ch from hook"); where the pattern
+    says the turning chain counts as a stitch they count as one (Ch 16 gives 14 dc)."""
     return spec.chain - skipped(spec) + (1 if spec.turn_counts else 0)
 
 

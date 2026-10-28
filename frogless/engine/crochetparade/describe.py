@@ -489,13 +489,21 @@ def describe_code(code: str) -> list[str]:
             if idx == 1 and foundation:
                 body = _foundation_row_text(parsed[0][1][0].n, items, replace(ctx, unit="ch"))
             else:
-                body = _items_text(items, ctx)
+                body = _round_text(items, ctx) if word == "Round" else _items_text(items, ctx)
             number += 1
             out.append(f"{word} {number}: {body}.")
         except _Unsupported:
             number += 1
             out.append(unsupported)
     return out
+
+
+def _round_text(items, ctx):
+    """A round's text; a plain ss ending the round is the join, not another stitch."""
+    last = items[-1]
+    if len(items) > 1 and _is_plain(last) and last.name == "ss" and last.n == 1:
+        return ", ".join([_items_text(items[:-1], ctx), "join with sl st to first st"])
+    return _items_text(items, ctx)
 
 
 _FROM_HOOK = {"sc": "2nd", "hdc": "3rd", "dc": "4th"}

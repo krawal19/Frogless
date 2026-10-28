@@ -7,15 +7,17 @@ Run from the repo root:
 """
 
 import argparse
+import sys
 from pathlib import Path
 
 from frogless.pipeline.check import check_pattern
+from frogless.pipeline.messages import user_message
 
 
 def format_report(report) -> str:
     v = report.verdict
     where = f" (row {v.row})" if v.row is not None else ""
-    lines = [f"Verdict: {v.kind}{where}", f"  {v.message}"]
+    lines = [user_message(report), "", f"Verdict: {v.kind}{where}", f"  {v.message}"]
     for reading in v.readings:
         lines.append(f"  reading: {reading}")
     lines.append("")
@@ -25,6 +27,8 @@ def format_report(report) -> str:
         faithful = "" if r.faithful is None else (" faithful" if r.faithful else " NOT faithful")
         lines.append(f"  [{r.index}] {r.origin}/{r.status}{added}{faithful}  {r.source}")
         lines.append(f"       code: {r.code or '-'}")
+        if r.english:
+            lines.append(f"       english: {r.english}")
         if r.note:
             lines.append(f"       note: {r.note}")
     if report.stated or report.computed:
@@ -40,6 +44,7 @@ def format_report(report) -> str:
 
 
 def main():
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("pattern", type=Path, help="text file with the pattern")
     parser.add_argument("--no-model", action="store_true", help="rules translator only, no API calls")

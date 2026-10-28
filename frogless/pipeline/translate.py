@@ -57,29 +57,49 @@ def _rows_listing(rows: list[RowResult]) -> str:
     return "\n".join(out)
 
 
-def _row_prompt(guide: str, text: str, rows: list[RowResult], row: RowResult) -> str:
+def _row_prompt(guide: str, text: str, rows: list[RowResult], row: RowResult, feedback: str = "") -> str:
+    """The translate prompt for one row. `feedback` (why an earlier attempt was wrong) goes last."""
+    tail = ""
+    if feedback:
+        tail = ("\nYour previous attempt for this row was wrong, because: " + feedback.strip()
+                + "\nTranslate it again so that the code does what the row says, with no such problem."
+                " Still translate literally and never correct the pattern.\n")
     return PROMPT.read_text(encoding="utf-8").format(
-        guide=guide, original=text.strip(), rows=_rows_listing(rows), index=row.index, source=row.source)
+        guide=guide, original=text.strip(), rows=_rows_listing(rows), index=row.index, source=row.source,
+        feedback=tail)
 
 
-def _ask(prompt: str, role_cfg: dict, cache_dir: Path) -> tuple[dict, float]:
-    """One model call, or the cached reply. Returns (reply, cost); a cached reply costs 0."""
+def ask_cached(prompt: str, role: str, schema: dict, cache_dir: Path, name: str) -> tuple[dict, float]:
+    """One model call, or the cached reply. Returns (reply, cost); a cached reply costs 0.
+
+    Everything before the first "<pattern>" tag should be the same for every call of this
+    `name`: the API reuses that start of the prompt (prompt caching).
+    """
+    role_cfg = load_config()["roles"][role]
     effort = role_cfg.get("reasoning_effort") or "default"
-    key = f"{role_cfg['model']}\neffort={effort}\nschema={json.dumps(ANSWER_SCHEMA, sort_keys=True)}\n{prompt}"
+    key = f"{role_cfg['model']}\neffort={effort}\nschema={json.dumps(schema, sort_keys=True)}\n{prompt}"
     path = cache_dir / (hashlib.sha256(key.encode()).hexdigest()[:24] + ".json")
     if path.exists():
         return json.loads(path.read_text(encoding="utf-8")), 0.0
     # The static start of the prompt is identical for every row, which lets the API reuse it
     # (prompt caching). prompt_cache_key groups the calls so they are routed together.
     static = prompt.split("<pattern>")[0]
-    result = chat(ROLE, [{"role": "user", "content": prompt}], json_schema=ANSWER_SCHEMA,
-                  prompt_cache_key="translate_row-" + hashlib.sha256(static.encode()).hexdigest()[:16])
+    result = chat(role, [{"role": "user", "content": prompt}], json_schema=schema,
+                  prompt_cache_key=name + "-" + hashlib.sha256(static.encode()).hexdigest()[:16])
     cost = result.get("cost_usd") or 0.0
     reply = {"text": result["text"], "usage": result["usage"], "cost_usd": cost}
     if reply["text"].strip():  # an empty reply is not worth keeping: retry it next run
         cache_dir.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(reply, indent=1), encoding="utf-8")
     return reply, cost
+
+
+def _ask(prompt: str, cache_dir: Path) -> tuple[dict, float]:
+    return ask_cached(prompt, ROLE, ANSWER_SCHEMA, cache_dir, "translate_row")
+
+
+def _ask(prompt: str, cache_dir: Path) -> tuple[dict, float]:
+    return ask_cached(prompt, ROLE, ANSWER_SCHEMA, cache_dir, "translate_row")
 
 
 def _apply(row: RowResult, reply: dict) -> RowResult:
@@ -111,9 +131,21 @@ def translate_flagged(engine: Engine, text: str, rows: list[RowResult],
     if not todo:
         return rows, total
     guide = engine.notation_guide()
-    role_cfg = load_config()["roles"][ROLE]
     for i in todo:
-        reply, cost = _ask(_row_prompt(guide, text, rows, rows[i]), role_cfg, cache_dir)
+        reply, cost = _ask(_row_prompt(guide, text, rows, rows[i]), cache_dir)
         total += cost
         rows[i] = _apply(rows[i], reply)
     return rows, total
+
+
+def retranslate_row(engine: Engine, text: str, rows: list[RowResult], i: int, feedback: str,
+                    cache_dir: Path = CACHE_DIR) -> tuple[RowResult, float]:
+    """Translate row i again with the model, telling it why the last attempt was wrong.
+
+    Returns (the new row, cost in USD). The other rows are shown as context, unchanged.
+    """
+    row = replace(rows[i], status="flagged", code="", note="")
+    context = list(rows)
+    context[i] = row
+    reply, cost = _ask(_row_prompt(engine.notation_guide(), text, context, row, feedback), cache_dir)
+    return _apply(row, reply), cost

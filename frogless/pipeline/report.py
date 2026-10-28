@@ -15,7 +15,29 @@ class RowResult:
     synthetic: bool = False  # added by the translator, not written in the pattern
     note: str = ""  # why it was flagged, or the model's CANNOT reason
     english: str = ""  # the code turned back into English (faithfulness check)
-    faithful: bool | None = None  # None = not checked
+    faithful: bool | None = None  # None = not checked (or the checker could not tell)
+    reading: str = ""  # faithfulness check: the one reading the code picked for an ambiguous row ("" if none)
+    why: str = ""  # faithfulness check: what is unclear in the written row (with `reading`)
+
+
+@dataclass
+class Interpreted:
+    """A row whose wording is ambiguous; the code picked one sensible reading of it."""
+
+    row: int  # the pattern's row/round number
+    source: str  # the row as written
+    reading: str  # what the code does
+    why: str  # what is unclear in the written row
+
+
+@dataclass
+class Alternative:
+    """One way of counting and what it gives, for an "ambiguous" verdict."""
+
+    reading: str  # the counting convention
+    row: int | None  # where the pattern breaks under it, None if it works
+    said: int | None = None  # stated count there, if a stated count is what failed
+    made: int | None = None  # count the instructions make there
 
 
 @dataclass
@@ -24,7 +46,9 @@ class Verdict:
     message: str
     row: int | None = None  # the pattern's row/round number where it breaks
     readings: list[str] = field(default_factory=list)  # for "ambiguous": the readings that fit
+    alternatives: list[Alternative] = field(default_factory=list)  # for "ambiguous": each reading's outcome
     reading: str = ""  # counting convention the verdict was reached under ("" if it did not matter)
+    interpreted: list[Interpreted] = field(default_factory=list)  # rows the code had to read one way
     rows: list[int] = field(default_factory=list)  # for "works_unverified": rows the model wrote and nothing confirmed
 
 

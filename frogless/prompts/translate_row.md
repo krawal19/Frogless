@@ -26,3 +26,4 @@ Everything above is the same for every row. The pattern follows.
 </rows>
 
 Translate row {index} now: {source}
+{feedback}

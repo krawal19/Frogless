@@ -32,7 +32,7 @@ from dataclasses import dataclass
 from ..engine import CheckResult, Engine, RowInfo
 from ..patterns.stated import StatedCount, stated_count
 from .gate import row_counts
-from .report import RowResult, Verdict
+from .report import Alternative, Interpreted, RowResult, Verdict
 
 PLAIN = "turning chain not counted as a stitch"
 TURN_COUNTS = "turning chain counted as a stitch"
@@ -55,6 +55,8 @@ class _Outcome:
     row: int | None  # earliest row where the pattern breaks under this reading
     message: str
     computed: dict[int, int]
+    said: int | None = None  # the stated count at the breaking row, when a stated count is what failed
+    made: int | None = None  # the count the instructions make there
 
 
 # ---- mapping rows to engine rows ----
@@ -150,7 +152,7 @@ def _evaluate(reading: str, rows: list[_Row], result: CheckResult | None, error_
         message = f"Row {row.number}: pattern says {_says(row.stated)}, the instructions make {made}"
         if not engine_ok and error_row == row.number:
             message += f" ({result.error.message})"
-        return _Outcome(reading, fits, row.number, message, computed)
+        return _Outcome(reading, fits, row.number, message, computed, row.stated.count, made)
     if not engine_ok:
         return _Outcome(reading, fits, error_row, f"Row {error_row}: {result.error.message}", computed)
     return _Outcome(reading, fits, None, "", computed)
@@ -194,17 +196,23 @@ def decide_verdict(engine: Engine, text: str, rows: list[RowResult],
     if plain.fits == turn.fits and plain.row != turn.row:  # equally good readings, different answers
         broken = [o.row for o in outcomes if o.row is not None]
         what = "the stated counts fit two ways of counting, which disagree on where this pattern breaks"
-        return (Verdict("ambiguous", what, row=min(broken), readings=[_describe(o) for o in outcomes]),
+        return (Verdict("ambiguous", what, row=min(broken), readings=[_describe(o) for o in outcomes],
+                         alternatives=[Alternative(o.reading, o.row, o.said, o.made) for o in outcomes]),
                 stated, best.computed)
     if best.row is not None:
         return Verdict("breaks", best.message + note, row=best.row, reading=reading), stated, best.computed
+    unverified = [r.number for r in mapped if r.result.origin == "model" and r.result.faithful is not True]
     if unread:
         what = f"could not read {len(unread)} row(s), first: {unread[0].result.source[:60]}"
-        return Verdict("unreadable", what), stated, best.computed
+        return Verdict("unreadable", what, row=unread[0].number,
+                       rows=[n for n in unverified if n < unread[0].number]), stated, best.computed
 
-    unverified = [r.number for r in mapped if r.result.origin == "model" and r.result.faithful is not True]
+    interpreted = [Interpreted(r.number, r.result.source, r.result.reading, r.result.why)
+                   for r in mapped if r.result.reading and r.result.faithful]
     if unverified:
         what = (f"stitch counts check out{note}, but {_names(unverified)} "
                 f"{'was' if len(unverified) == 1 else 'were'} translated by the model and not confirmed")
-        return Verdict("works_unverified", what, rows=unverified, reading=reading), stated, best.computed
-    return Verdict("works", f"stitch counts and structure check out{note}", reading=reading), stated, best.computed
+        return (Verdict("works_unverified", what, rows=unverified, reading=reading, interpreted=interpreted),
+                stated, best.computed)
+    return (Verdict("works", f"stitch counts and structure check out{note}", reading=reading,
+                    interpreted=interpreted), stated, best.computed)

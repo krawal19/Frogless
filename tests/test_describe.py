@@ -36,8 +36,13 @@ def test_plain_stitches(stitch, word):
 
 def test_chain_and_slip_stitch():
     out = describe("ring.R0\n(6sc)@R0\n6sc,2ch,ss")
-    assert out[-1] == "Round 2: sc in next 6 sts, ch 2, ss in next st."
+    assert out[-1] == "Round 2: sc in next 6 sts, ch 2, join with sl st to first st."
     assert describe("ring.R0\n(6sc)@R0\n6sc,ch")[-1] == "Round 2: sc in next 6 sts, ch 1."
+
+
+def test_trailing_ss_in_a_round_is_the_join_but_not_in_the_middle():
+    assert describe("ring.R0\n(6sc)@R0\n6sc,ss")[-1] == "Round 2: sc in next 6 sts, join with sl st to first st."
+    assert describe("ring.R0\n(6sc)@R0\n3sc,ss,3sc")[-1] == "Round 2: sc in next 3 sts, ss in next st, sc in next 3 sts."
 
 
 def test_ss_to_first_stitch_closes_round():

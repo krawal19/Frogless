@@ -8,7 +8,10 @@ case's English rows -> decide_verdict, which also compares each row's stated cou
 count the engine makes). Each route is PASS / FAIL / UNREADABLE per case.
 --patterns runs only the English route on a folder of real pattern .txt files, which
 have no known answer. --summary-only prints totals only (for a held-out set).
-Output: a summary on screen and logs/testset/*.json. No model calls.
+--pipeline adds a fourth route: check_pattern() on the case's English with the model (translation and
+faithfulness), compared with the key. It costs money (--max-cost stops the run), but replies are
+cached on disk, so a rerun is free.
+Output: a summary on screen and logs/testset/*.json. No model calls unless --pipeline.
 """
 
 import argparse
@@ -21,7 +24,9 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from frogless.engine import get_engine
+from frogless.pipeline.check import check_pattern
 from frogless.pipeline.gate import gate_translation
+from frogless.pipeline.messages import user_message
 from frogless.pipeline.report import RowResult
 from frogless.pipeline.verdict import decide_verdict
 from frogless.testset.generators import ROOT, base_cases, load_config
@@ -97,29 +102,67 @@ def run_verdict(engine, case):
     return "PASS", ""
 
 
-def run_synthetic(engine, cfg):
+def run_pipeline(engine, case):
+    """The whole pipeline with the model. Works (also with interpretations) passes a working case;
+    works_unverified is its own outcome (counts fit, but a row was only read by the model)."""
+    report = check_pattern(case["english"], engine=engine, use_model=True)
+    v = report.verdict
+    case["pipeline"] = {
+        "kind": v.kind, "row": v.row, "message": v.message, "user_message": user_message(report),
+        "interpreted": [i.row for i in v.interpreted], "cost_usd": report.cost_usd,
+        "model_rows": sum(r.origin == "model" for r in report.rows),
+        "cannot_rows": sum(r.status == "cannot" for r in report.rows),
+        "faithful_rows": sum(bool(r.faithful) for r in report.rows),
+    }
+    want, row = case["expected"]["verdict"], case["expected"]["break_row"]
+    if v.kind == "works_unverified" and want == "works":
+        return "UNVERIFIED", f"rows {v.rows} read by the model, not confirmed"
+    if v.kind == "unreadable":
+        return "UNREADABLE", v.message[:80]
+    if want == "works":
+        return ("PASS", "") if v.kind == "works" else ("FAIL", f"expected works, verdict {v.kind}: {v.message[:70]}")
+    if v.kind != "breaks":
+        return "FAIL", f"expected breaks at row {row}, verdict {v.kind}: {v.message[:70]}"
+    return ("PASS", "") if v.row == row else ("FAIL", f"broke at row {v.row}, expected row {row}")
+
+
+def run_synthetic(engine, cfg, pipeline=False, max_cost=0.0):
     cases = base_cases(cfg)
     cases += injected_cases(cfg, cases)
+    routes, fns = list(ROUTES), [run_code, run_english, run_verdict]
+    if pipeline:
+        routes.append("pipeline")
+        fns.append(run_pipeline)
+    spent = 0.0
     for case in cases:
         case["results"] = {}
-        for route, fn in zip(ROUTES, (run_code, run_english, run_verdict)):
+        for route, fn in zip(routes, fns):
+            if route == "pipeline" and spent > max_cost:
+                sys.exit(f"stopping: spent ${spent:.2f}, over --max-cost ${max_cost:.2f}")
             status, reason = fn(engine, case)
             case["results"][route] = {"status": status, "reason": reason}
         res = case["results"]
+        spent += case.get("pipeline", {}).get("cost_usd", 0.0)
         gap = " [known_gap]" if case["known_gap"] else ""
+        extra = f" pipeline {res['pipeline']['status']}" if pipeline else ""
         print(f"{case['id']:<44}{gap:<13} code {res['code']['status']:<10} english {res['english']['status']:<11}"
-              f" verdict {res['verdict']['status']}")
-        for route in ROUTES:
+              f" verdict {res['verdict']['status']}{extra}")
+        for route in routes:
             if res[route]["reason"]:
                 print(f"    {route}: {res[route]['reason']}")
     return cases
 
 
+def routes_of(cases):
+    return list(cases[0]["results"]) if cases else list(ROUTES)
+
+
 def tally(cases, key):
     """{group: {route: {status: n}}} for cases grouped by key(case)."""
-    out = defaultdict(lambda: {r: defaultdict(int) for r in ROUTES})
+    routes = routes_of(cases)
+    out = defaultdict(lambda: {r: defaultdict(int) for r in routes})
     for c in cases:
-        for route in ROUTES:
+        for route in routes:
             out[key(c)][route][c["results"][route]["status"]] += 1
     return out
 
@@ -127,7 +170,9 @@ def tally(cases, key):
 def fmt(counts):
     total = sum(counts.values())
     pct = 100 * counts.get("PASS", 0) // total if total else 0
-    return f"{counts.get('PASS', 0)}/{total} pass ({pct}%), {counts.get('FAIL', 0)} fail, {counts.get('UNREADABLE', 0)} unreadable"
+    unverified = f", {counts['UNVERIFIED']} unverified" if counts.get("UNVERIFIED") else ""
+    return (f"{counts.get('PASS', 0)}/{total} pass ({pct}%), {counts.get('FAIL', 0)} fail, "
+            f"{counts.get('UNREADABLE', 0)} unreadable{unverified}")
 
 
 def reason_key(reason):
@@ -141,6 +186,7 @@ def reason_key(reason):
 
 
 def print_summary(cases):
+    routes = routes_of(cases)
     print("\n=== Summary ===")
     sections = [
         ("all cases", lambda c: "all"),
@@ -152,9 +198,9 @@ def print_summary(cases):
         print(f"\n{title}")
         groups = tally([c for c in cases if key(c)], key)
         for name, per_route in sorted(groups.items()):
-            print(f"  {name:<22}" + "".join(f"\n      {r:<8}{fmt(per_route[r])}" for r in ROUTES))
+            print(f"  {name:<22}" + "".join(f"\n      {r:<8}{fmt(per_route[r])}" for r in routes))
     print("\ntop reasons for FAIL / UNREADABLE")
-    for r in ROUTES:
+    for r in routes:
         reasons = defaultdict(int)
         for c in cases:
             res = c["results"][r]
@@ -165,7 +211,7 @@ def print_summary(cases):
     # Pass rates without the known-gap cases, so the gap does not hide real failures
     rest = [c for c in cases if not c["known_gap"]]
     print("\nwithout known_gap cases")
-    for r in ROUTES:
+    for r in routes:
         print(f"      {r:<8}{fmt(tally(rest, lambda c: 'x')['x'][r])}")
 
 
@@ -216,6 +262,9 @@ def write_report(cfg, payload):
 def main():
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--patterns", type=Path, help="folder of real pattern .txt files (English route only)")
+    parser.add_argument("--pipeline", action="store_true",
+                        help="also run check_pattern() with the model on each synthetic case (costs money)")
+    parser.add_argument("--max-cost", type=float, default=1.5, help="with --pipeline: stop when this many USD are spent")
     parser.add_argument("--summary-only", action="store_true", help="with --patterns: print totals only")
     args = parser.parse_args()
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -228,7 +277,7 @@ def main():
         write_report({**cfg, "report": str(Path(cfg["report"]).with_name(f"patterns_{args.patterns.name}.json"))},
                      {"folder": args.patterns.name, "results": results})
         return
-    cases = run_synthetic(engine, cfg)
+    cases = run_synthetic(engine, cfg, args.pipeline, args.max_cost)
     print_summary(cases)
     slim = [{k: v for k, v in c.items() if k not in ("spec", "style")} for c in cases]
     write_report(cfg, {"seed": cfg["seed"], "cases": slim})

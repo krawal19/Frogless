@@ -6,14 +6,16 @@ the engine. The English wording is varied per case, chosen deterministically fro
 
 import json
 import random
+from dataclasses import replace
 from pathlib import Path
 
-from .spec import Item, Repeat, Spec, consumed, expected, made, skipped
+from .spec import Item, Repeat, Spec, consumed, expected, foundation_stitches, made, skipped
 
 ROOT = Path(__file__).resolve().parents[2]
 TURN_CH = {"sc": 1, "hdc": 2, "dc": 3}
 # (single, range) label words per style, for rounds and for rows.
 LABELS = {"round": ("Round", "Rounds"), "rnd": ("Rnd", "Rnds"), "r": ("R", "R")}
+ORDINAL = {2: "2nd", 3: "3rd", 4: "4th"}
 ROW_LABELS = {"round": ("Row", "Rows"), "rnd": ("Row", "Rows"), "r": ("R", "R")}
 
 
@@ -42,9 +44,18 @@ def ball_spec(peak, even_rounds) -> Spec:
     return spec
 
 
-def rows_spec(width, nrows) -> Spec:
-    """Rectangle in turned sc rows."""
-    return Spec("chain", "rows", [[Item("st", "sc", width)] for _ in range(nrows)], chain=width + 1)
+def rows_spec(width, nrows, stitch="sc") -> Spec:
+    """Rectangle in turned rows of `width` stitches each.
+
+    sc: the turning chain does not count; Ch width+1 (sc in 2nd ch from hook).
+    hdc/dc: the turning chain counts as the first stitch of each row, so a row is the turning
+    chain plus width-1 worked stitches, and the skipped foundation chains count as one stitch:
+    hdc Ch width+1 (3rd ch from hook), dc Ch width+2 (4th ch from hook).
+    """
+    spec = Spec("chain", "rows", [[Item("st", stitch, width)] for _ in range(nrows)],
+                chain=width + {"sc": 1, "hdc": 1, "dc": 2}[stitch], stitch=stitch, turn_counts=stitch != "sc")
+    assert foundation_stitches(spec) == width
+    return spec
 
 
 # ---- English ----
@@ -75,17 +86,28 @@ def _part(x, style):
     return _dec(x.stitch, style) if x.n == 1 else f"{_dec(x.stitch, style)} {x.n} times"
 
 
+def _after_turning_chain(items):
+    """In hdc/dc rows the counted turning chain is the row's first stitch, so the text names one fewer."""
+    first = items[0]
+    if isinstance(first, Repeat) or first.kind != "st":
+        return items
+    return ([replace(first, n=first.n - 1)] if first.n > 1 else []) + list(items[1:])
+
+
 def _body(items, prev, spec, style, first):
     """The stitch instructions of one round or row."""
     where = "across" if spec.mode == "rows" else "around"
-    parts = ", ".join(_part(i, style) for i in items)
+    named = _after_turning_chain(items) if spec.mode == "rows" and spec.turn_counts and not first else items
+    parts = ", ".join(_part(i, style) for i in named)
     if first and spec.start == "ring" and len(items) == 1:
         return f"{items[0].n} {items[0].stitch} in magic ring"
     if first and spec.start == "chain":
         x = items[0]
-        if len(items) == 1 and x.kind == "st" and x.n == spec.chain - skipped(spec):
-            return f"{x.stitch} in 2nd ch from hook and across"
-        return f"{parts}, starting in 2nd ch from hook"
+        nth = ORDINAL[skipped(spec) + 1]
+        if len(items) == 1 and x.kind == "st" and x.n == foundation_stitches(spec):
+            rest = "across" if style["across"] == "plain" else "in each ch across"
+            return f"{x.stitch} in {nth} ch from hook and {rest}"
+        return f"{parts}, starting in {nth} ch from hook"
     if len(items) == 1 and prev is not None and consumed(items) == prev:  # works the whole previous row
         x = items[0]
         if isinstance(x, Repeat):
@@ -120,10 +142,12 @@ def render_english(spec, style, stated) -> str:
         prev = made(spec.rows[i - 1]) if i else None
         text = _body(spec.rows[i], prev, spec, style, first=i == 0)
         if spec.mode == "rows":
-            if i:
-                text = f"ch {TURN_CH[spec.stitch]}, {text}"
+            turn_ch = f"ch {TURN_CH[spec.stitch]}"
+            at_end = style.get("turnch") == "end"  # "..., ch 3, turn" vs "ch 3, ..." on the next row
+            if i and not at_end:
+                text = f"{turn_ch}, {text}"
             if j < len(spec.rows) - 1:
-                text += ", turn"
+                text += f", {turn_ch}, turn" if at_end else ", turn"
         count = f" ({stated[i]})" if style["count"] == "paren" else f" = {stated[i]}"
         lines.append(f"{_label(i + 1, j + 1, spec, style)} {text}{count}")
         i = j + 1
@@ -162,6 +186,9 @@ def base_cases(cfg) -> list[dict]:
     for peak in fam["ball"]["peaks"]:
         for even in fam["ball"]["even_rounds"]:
             items.append((f"ball-peak{6 * peak}-even{even}", "ball", ball_spec(peak, even)))
-    for width, nrows in fam["rows"]["sizes"]:
-        items.append((f"rows-{width}x{nrows}", "rows", rows_spec(width, nrows)))
+    for stitch in ("sc", "hdc", "dc"):
+        family = "rows" if stitch == "sc" else f"rows_{stitch}"
+        for width, nrows in fam[family]["sizes"]:
+            prefix = "rows" if stitch == "sc" else f"rows-{stitch}"
+            items.append((f"{prefix}-{width}x{nrows}", family, rows_spec(width, nrows, stitch)))
     return [make_case(i, f, s, pick_style(cfg, i)) for i, f, s in items]

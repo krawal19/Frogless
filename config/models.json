@@ -9,7 +9,7 @@
     }
   },
   "roles": {
-    "translator":   {"provider": "meta", "model": "muse-spark-1.3", "max_tokens": 4000},
+    "translator":   {"provider": "meta", "model": "muse-spark-1.3", "max_tokens": 4000, "reasoning_effort": "low"},
     "faithfulness": {"provider": "meta", "model": "muse-spark-1.3", "max_tokens": 4000},
     "fixer":        {"provider": "meta", "model": "muse-spark-1.3", "max_tokens": 4000},
     "vision":       {"provider": "meta", "model": "muse-spark-1.3", "max_tokens": 4000},

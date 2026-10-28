@@ -1,22 +1,18 @@
-"""Smoke test: one SAM 3.1 call (~$0.0025) on a freely licensed crochet photo.
+"""Smoke test: one SAM 3.1 call (~$0.0025) on a photo of a crochet piece you provide.
 
-Run from the repo root: python -m scripts.hello_sam
-Writes logs/sam_input.jpg (downloaded) and logs/sam_overlay.png (masks + boxes).
+Run from the repo root: python -m scripts.hello_sam path/to/photo.jpg
+Writes logs/sam_overlay.png (masks + boxes drawn over the photo).
 """
 
 import sys
 from pathlib import Path
 
-import httpx
 from PIL import Image, ImageDraw
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # so `python scripts/hello_sam.py` works too
 
 from frogless.models.client import ROOT, segment
 
-IMAGE_URL = "https://upload.wikimedia.org/wikipedia/commons/thumb/9/96/Granny_square.jpg/1280px-Granny_square.jpg"
-IMAGE_PAGE = "https://commons.wikimedia.org/wiki/File:Granny_square.jpg"
-IMAGE_LICENSE = "CC BY-SA 4.0 (Wikimedia Commons, File:Granny_square.jpg)"
 PROMPT = "crochet"
 COLORS = [(230, 57, 70), (42, 157, 143), (244, 162, 97), (69, 123, 157), (131, 56, 236)]
 
@@ -33,19 +29,14 @@ def write_overlay(path, img_path, result):
 
 
 def main():
+    if len(sys.argv) != 2 or not Path(sys.argv[1]).is_file():
+        sys.exit("usage: python -m scripts.hello_sam path/to/photo.jpg")
+    img_path = Path(sys.argv[1])
     logs = ROOT / "logs"
     logs.mkdir(exist_ok=True)
-    img_path = logs / "sam_input.jpg"
-    if not img_path.exists():
-        r = httpx.get(IMAGE_URL, headers={"User-Agent": "FroglessHackathon/0.1"}, follow_redirects=True, timeout=60)
-        r.raise_for_status()
-        img_path.write_bytes(r.content)
 
-    print("image:  ", IMAGE_URL)
-    print("page:   ", IMAGE_PAGE)
-    print("license:", IMAGE_LICENSE)
+    print("image:  ", img_path)
     print("prompt: ", repr(PROMPT))
-
     result = segment("segment", img_path, PROMPT)  # local file -> base64 data URL
     print("model:  ", result["model"])
     print("matches:", len(result["matches"]))

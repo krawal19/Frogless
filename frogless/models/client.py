@@ -23,8 +23,11 @@ def estimate_cost(cfg, model, usage):
     price = cfg.get("pricing_per_million_tokens_usd", {}).get(model)
     if not price:
         return None
+    cached = usage.get("cached_tokens", 0)
     return (
-        usage["input_tokens"] * price["input"] + usage["output_tokens"] * price["output"]
+        (usage["input_tokens"] - cached) * price["input"]
+        + cached * price.get("cached_input", price["input"])
+        + usage["output_tokens"] * price["output"]
     ) / 1_000_000
 
 
@@ -78,6 +81,10 @@ def chat(role, messages, **opts):
     adapter = PROVIDERS[provider_name]
     model = role_cfg["model"]
     opts.setdefault("max_tokens", role_cfg.get("max_tokens"))
+    if role_cfg.get("reasoning_effort"):
+        opts.setdefault("reasoning_effort", role_cfg["reasoning_effort"])
+    if opts.get("reasoning_effort") is None:
+        opts.pop("reasoning_effort", None)  # let the model choose
 
     start = time.perf_counter()
     try:
@@ -98,6 +105,9 @@ def chat(role, messages, **opts):
         "model": model,
         "input_tokens": usage["input_tokens"],
         "output_tokens": usage["output_tokens"],
+        "reasoning_tokens": usage.get("reasoning_tokens", 0),
+        "cached_tokens": usage.get("cached_tokens", 0),
+        "reasoning_effort": opts.get("reasoning_effort", "model default"),
         "latency_ms": latency_ms,
         "cost_usd": cost,
     })

@@ -17,8 +17,13 @@ def encode(spec) -> str:
         if spec.start == "ring":
             line = f"({body})@R0" if i == 0 else body
         else:  # flat rows: skip chains in row 1, turning chain after that, turn at the end
-            lead = f"{skipped(spec)}sk" if i == 0 else TURNING_CHAIN[spec.stitch]
-            line = f"{lead},{body}" + ("" if i == last else ",turn")
+            # A turning chain that counts as a stitch is written as that stitch: the row's stitches
+            # include it, and in row 1 the skipped chains give one stitch less to skip.
+            if i == 0:
+                lead = f"{skipped(spec) - spec.turn_counts}sk,"
+            else:
+                lead = "" if spec.turn_counts else TURNING_CHAIN[spec.stitch] + ","
+            line = f"{lead}{body}" + ("" if i == last else ",turn")
         lines.append(line)
     return "\n".join(lines)
 

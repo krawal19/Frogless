@@ -3,7 +3,7 @@
 Run from the repo root: python -m scripts.run_testset [--patterns FOLDER [--summary-only]]
 
 Synthetic cases go through two routes: code (spec -> encode -> check) and English
-(English -> translate -> check). Each route is PASS / FAIL / UNREADABLE per case.
+(English -> translate -> stated-count gate -> check). Each route is PASS / FAIL / UNREADABLE per case.
 --patterns runs only the English route on a folder of real pattern .txt files, which
 have no known answer. --summary-only prints totals only (for a held-out set).
 Output: a summary on screen and logs/testset/*.json. No model calls.
@@ -19,6 +19,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from frogless.engine import get_engine
+from frogless.pipeline.gate import gate_translation
 from frogless.testset.generators import ROOT, base_cases, load_config
 from frogless.testset.inject import injected_cases
 
@@ -51,7 +52,7 @@ def run_code(engine, case):
 
 
 def run_english(engine, case):
-    tr = engine.translate(case["english"])
+    tr = gate_translation(engine, engine.translate(case["english"]), case["english"])
     case["translated"] = tr.code
     bad = [l for l in tr.lines if not l.parsed and not l.synthetic]
     if bad:
@@ -131,7 +132,7 @@ def print_summary(cases):
 
 
 def pattern_rows(engine, text):
-    tr = engine.translate(text)
+    tr = gate_translation(engine, engine.translate(text), text)
     lines = [l for l in tr.lines if not l.synthetic]
     parsed = sum(l.parsed for l in lines)
     check = engine.check(tr.code) if tr.code else None

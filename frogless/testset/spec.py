@@ -31,6 +31,7 @@ class Spec:
     rows: list = field(default_factory=list)  # each row is a list of Item / Repeat
     chain: int = 0  # foundation chain length, when start == "chain"
     stitch: str = "sc"  # main stitch; sets the turning chain and skipped chains for rows
+    turn_counts: bool = False  # hdc/dc rows: the turning chain counts as the row's first stitch
 
 
 def consumed(items) -> int:
@@ -54,8 +55,14 @@ def _one(i):
 
 
 def skipped(spec) -> int:
-    """Foundation chains skipped before the first stitch of row 1."""
-    return 3 if spec.stitch == "dc" else 1
+    """Foundation chains skipped before the first worked stitch of row 1 ("dc in 4th ch from hook")."""
+    return {"sc": 1, "hdc": 2, "dc": 3}[spec.stitch]
+
+
+def foundation_stitches(spec) -> int:
+    """Stitches row 1 can make from the foundation chain. With a counting turning chain
+    the skipped chains count as one stitch (Ch 17 gives 15 dc); for sc they do not."""
+    return spec.chain - skipped(spec) + (1 if spec.turn_counts else 0)
 
 
 def expected(spec, stated=None) -> dict:
@@ -65,7 +72,7 @@ def expected(spec, stated=None) -> dict:
     it makes a different count from the one the English states (stated, per row).
     """
     counts = [made(r) for r in spec.rows]
-    avail = spec.chain - skipped(spec) if spec.start == "chain" else None  # ring: no row before
+    avail = foundation_stitches(spec) if spec.start == "chain" else None  # ring: no row before
     for n, row in enumerate(spec.rows, 1):
         if avail is not None and consumed(row) != avail:
             return {"verdict": "breaks", "break_row": n, "counts": counts}

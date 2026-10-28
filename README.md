@@ -58,7 +58,7 @@ On Windows, use forward slashes, for example `C:/code/CrochetPARADE`. `.env` is 
 ```sh
 python -m pytest -q        # offline, no API calls
 python -m scripts.hello    # one Muse Spark call, under 1 cent
-python -m scripts.hello_sam  # one SAM 3.1 call, $0.0025
+python -m scripts.hello_sam path/to/photo.jpg  # one SAM 3.1 call on your own photo, $0.0025
 ```
 Every model call is logged with its cost to `logs/model_calls.jsonl`.
 

@@ -52,8 +52,13 @@ def _error_message(resp):
     return resp.text[:300]
 
 
-def chat(provider_cfg, model, messages, max_tokens=None, **opts):
-    """Single attempt. Returns (text, usage, raw). Raises ProviderError."""
+def chat(provider_cfg, model, messages, max_tokens=None, json_schema=None, **opts):
+    """Single attempt. Returns (text, usage, raw). Raises ProviderError.
+
+    json_schema: a JSON Schema the reply must follow (structured output).
+    opts go straight into the request, e.g. reasoning_effort ("minimal" ... "max";
+    "none" is rejected by Muse Spark).
+    """
     key = os.environ.get(provider_cfg["api_key_env"])
     if not key:
         raise ProviderError(f"env var {provider_cfg['api_key_env']} is not set")
@@ -61,7 +66,9 @@ def chat(provider_cfg, model, messages, max_tokens=None, **opts):
     body = {"model": model, "messages": messages}
     if max_tokens:
         body["max_completion_tokens"] = max_tokens
-    body.update(opts)  # e.g. temperature, reasoning_effort
+    if json_schema:
+        body["response_format"] = {"type": "json_schema", "json_schema": {"name": "answer", "schema": json_schema}}
+    body.update(opts)
 
     try:
         resp = httpx.post(
@@ -89,7 +96,9 @@ def chat(provider_cfg, model, messages, max_tokens=None, **opts):
         raise ProviderError(f"unreadable chat response: {type(e).__name__}: {e}", charged=True)
     usage = {
         "input_tokens": u.get("prompt_tokens", 0),
-        "output_tokens": u.get("completion_tokens", 0),
+        "output_tokens": u.get("completion_tokens", 0),  # includes reasoning tokens
+        "reasoning_tokens": (u.get("completion_tokens_details") or {}).get("reasoning_tokens", 0),
+        "cached_tokens": (u.get("prompt_tokens_details") or {}).get("cached_tokens", 0),
     }
     return text, usage, raw
 

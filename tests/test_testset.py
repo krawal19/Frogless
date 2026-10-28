@@ -29,7 +29,7 @@ def test_generators_make_valid_working_specs():
         assert isinstance(spec, Spec) and spec.rows
         assert exp == {"verdict": "works", "break_row": None, "counts": [made(r) for r in spec.rows]}
         assert case["english"].count("\n") >= len(spec.rows) // 3  # ranges can merge lines
-    assert {c["family"] for c in BASES} == {"circle", "ball", "rows"}
+    assert {c["family"] for c in BASES} == {"circle", "ball", "rows", "rows_hdc", "rows_dc"}
 
 
 def test_circle_counts_follow_arithmetic():
@@ -77,6 +77,14 @@ def test_wrong_count_keeps_the_original_stated_count():
     r = case["expected"]["break_row"]
     assert case["stated"][r - 1] == BY_ID["circle-sc-6r"]["stated"][r - 1]
     assert case["expected"]["counts"][r - 1] == case["stated"][r - 1] + 1
+
+
+def test_counted_turning_chain_is_left_out_of_partial_rows():
+    # "ch 2, hdc in next 7 sts" makes 8: the ch 2 is the row's first stitch
+    case = next(c for c in injected_cases(CFG, BASES) if c["id"].startswith("rows-hdc") and c["injection"] == "missing_stitch")
+    r = case["expected"]["break_row"]
+    row = case["english"].splitlines()[r]  # line 0 is the foundation chain
+    assert f"in next {case['expected']['counts'][r - 1] - 1} sts" in row
 
 
 def test_known_gap_tags_and_case_total():

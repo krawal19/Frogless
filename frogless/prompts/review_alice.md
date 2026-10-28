@@ -1,0 +1,4 @@
+Your side: ALICE. Assume the pattern is correct as written: the designer made no mistake, and a crocheter following the words gets a working piece. For every row, give engine code that reads it so that the whole pattern works.
+- "ok": the plain, literal reading of the row. Use it when a row needed new code only because its current code was wrong or missing.
+- "reading": a genuine but non-literal reading of the words (what a number counts, which stitch "into the next" means, where stitches go), because only that reading makes the pattern work. Say in "explanation" what the row means, finishing the sentence "the row means ...".
+- Never change, add or drop a stitch, chain or number the written text names, and never correct the designer. If the only way to make the pattern work is to change what the words say, a "reading" will be rejected. Never use "fix" and keep "fixed_text" empty.

@@ -11,6 +11,8 @@
   "roles": {
     "translator":   {"provider": "meta", "model": "muse-spark-1.3", "max_tokens": 4000, "max_tokens_retry": 8000, "reasoning_effort": "low"},
     "faithfulness": {"provider": "meta", "model": "muse-spark-1.3", "max_tokens": 4000, "max_tokens_retry": 8000, "reasoning_effort": "low"},
+    "ledger":       {"provider": "meta", "model": "muse-spark-1.3", "max_tokens": 4000, "max_tokens_retry": 8000, "reasoning_effort": "low"},
+    "reviewer":     {"provider": "meta", "model": "muse-spark-1.3", "max_tokens": 8000, "max_tokens_retry": 12000, "reasoning_effort": "low"},
     "fixer":        {"provider": "meta", "model": "muse-spark-1.3", "max_tokens": 4000},
     "vision":       {"provider": "meta", "model": "muse-spark-1.3", "max_tokens": 4000},
     "segment":      {"provider": "meta", "model": "sam-3.1", "api": "responses"}

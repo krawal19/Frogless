@@ -17,6 +17,8 @@ from ..base import (
     TranslateResult,
 )
 
+from .spaces import SpaceError, resolve_spaces
+
 BRIDGE = Path(__file__).with_name("bridge.js")
 NOTATION_GUIDE = Path(__file__).with_name("notation_guide.md")
 VISUAL_SAMPLES = Path(__file__).with_name("visual_samples_synthetic.json")
@@ -26,6 +28,8 @@ NOT_STITCHES = {"ring", "tie_up", "start_at", "start_anew", "start_a_new_chain"}
 LOOSE_RULES = {"ss", "ch"}
 # Rows the translator adds on its own (not written in the pattern).
 SYNTHETIC_SOURCES = {"make a magic ring.", "tie_up"}
+# The translator's marker for "start the next piece". It is not code the engine knows.
+RESTART_MARKER = "__restart__"
 
 
 class CrochetEngine(Engine):
@@ -55,6 +59,10 @@ class CrochetEngine(Engine):
         return json.loads(proc.stdout)
 
     def check(self, code: str) -> CheckResult:
+        try:
+            code = resolve_spaces(code)
+        except SpaceError as e:
+            return CheckResult(ok=False, error=CheckError(message=str(e)))
         out = self._run_bridge({"op": "check", "code": _chain_after_turn(code)})
         warnings = [w.strip() for w in out["warnings"]]
         if not out["ok"]:
@@ -68,6 +76,9 @@ class CrochetEngine(Engine):
                 result.error = _count_error(row)
                 break
         return result
+
+    def resolve(self, code: str) -> str:
+        return resolve_spaces(code)
 
     # ---- translate ----
     def translate(self, text: str) -> TranslateResult:
@@ -97,6 +108,9 @@ class CrochetEngine(Engine):
         _turn_rows(lines)
         return TranslateResult(lines=lines)
 
+    def is_marker(self, source: str) -> bool:
+        return source == RESTART_MARKER
+
     def stitches(self) -> list[str]:
         _add_python_path(self.repo)
         from crochetparade_translator.ir import parser
@@ -116,12 +130,12 @@ class CrochetEngine(Engine):
     def render(self, code: str, out_dir) -> dict:
         from .render import render_code
 
-        return render_code(self.repo, code, out_dir)
+        return render_code(self.repo, resolve_spaces(code), out_dir)
 
     def render_many(self, items, out_dir) -> list[dict]:
         from .render import render_many
 
-        return render_many(self.repo, items, out_dir)
+        return render_many(self.repo, [(n, resolve_spaces(c), *rest) for n, c, *rest in items], out_dir)
 
     def visual_samples(self) -> list[dict]:
         return json.loads(VISUAL_SAMPLES.read_text(encoding="utf-8"))

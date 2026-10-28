@@ -25,7 +25,7 @@ from frogless.testset.inject import injected_cases
 
 
 def export_case(engine, case, use_model):
-    report = check_pattern(case["english"], engine=engine, use_model=use_model)
+    report = check_pattern(case["english"], engine=engine, use_model=use_model, review=False)
     v = report.verdict
     written = [r for r in report.rows if not r.synthetic]
     # Same numbering as the verdict: a foundation chain is row 0, a magic-ring round starts at 1.

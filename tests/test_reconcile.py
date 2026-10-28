@@ -2,7 +2,7 @@
 
 import json
 
-from frogless.engine import CheckResult, RowInfo
+from frogless.engine import CheckError, CheckResult, RowInfo
 from frogless.pipeline import reconcile, translate
 from frogless.pipeline.reconcile import reconcile_counts
 from frogless.pipeline.report import RowResult
@@ -44,10 +44,19 @@ class FakeChat:
                 "cost_usd": 0.01}
 
 
-def run(monkeypatch, tmp_path, replies, rows_in=None):
+class PickyEngine(FakeEngine):
+    """Code ending in "bad" is rejected with an engine error."""
+
+    def check(self, code):
+        if any(l.endswith("bad") for l in code.splitlines()):
+            return CheckResult(ok=False, error=CheckError("leaves 2 stitches of the previous row unworked", kind="count"))
+        return super().check(code)
+
+
+def run(monkeypatch, tmp_path, replies, rows_in=None, engine=None):
     fake = FakeChat(replies)
     monkeypatch.setattr(translate, "chat", fake)
-    out, cost = reconcile_counts(FakeEngine(), TEXT, rows_in or rows(), tmp_path / "r", tmp_path / "f")
+    out, cost = reconcile_counts(engine or FakeEngine(), TEXT, rows_in or rows(), tmp_path / "r", tmp_path / "f")
     return fake, out, cost
 
 
@@ -79,7 +88,7 @@ def test_faithful_verdict_is_accepted_too(monkeypatch, tmp_path):
 
 def test_rejected_by_the_checker_keeps_the_original(monkeypatch, tmp_path):
     for kind in ("mismatch", "cannot_tell"):
-        _, out, _ = run(monkeypatch, tmp_path / kind, [fix(), judged(kind, reason="drops stitches")])
+        _, out, _ = run(monkeypatch, tmp_path / kind, [fix(), judged(kind, reason="drops stitches"), fix("14dc", "none")])
         assert out[2].code == "14dc" and out[2].reading == "" and out[2].origin == "model"
 
 
@@ -90,8 +99,8 @@ def test_same_code_keeps_the_original_and_skips_the_checker(monkeypatch, tmp_pat
 
 
 def test_new_code_that_still_misses_the_count_is_not_checked(monkeypatch, tmp_path):
-    fake, out, _ = run(monkeypatch, tmp_path, [fix("10dc")])
-    assert len(fake.calls) == 1 and out[2].code == "14dc"
+    fake, out, _ = run(monkeypatch, tmp_path, [fix("10dc"), fix("14dc", "none")])
+    assert [c["role"] for c in fake.calls] == ["translator", "translator"] and out[2].code == "14dc"
 
 
 def test_rows_that_already_fit_are_never_sent(monkeypatch, tmp_path):
@@ -109,3 +118,37 @@ def test_each_row_is_tried_once(monkeypatch, tmp_path):
     fake, out, _ = run(monkeypatch, tmp_path, [fix("8dc"), judged("interpreted", "r", "w"), fix("20dc", "none")], two)
     assert len(fake.calls) == 3  # row 2: ask + check; row 3: ask (same code, nothing more)
     assert out[3].code == "20dc"
+
+
+def test_second_attempt_after_an_engine_error_is_accepted(monkeypatch, tmp_path):
+    fake, out, _ = run(monkeypatch, tmp_path, [fix("3dcbad"), fix("8dc"), judged("interpreted", "r", "w")],
+                       engine=PickyEngine())
+    assert [c["role"] for c in fake.calls] == ["translator", "translator", "faithfulness"]
+    assert "rejected" not in fake.calls[0]["prompt"]
+    feedback = fake.calls[1]["prompt"]
+    assert "`3dcbad`" in feedback and "leaves 2 stitches of the previous row unworked" in feedback
+    assert out[2].code == "8dc" and out[2].reading == "r"
+
+
+def test_wrong_count_and_checker_reason_are_fed_back(monkeypatch, tmp_path):
+    fake, out, _ = run(monkeypatch, tmp_path, [
+        fix("10dc"), fix("8dc"), judged("mismatch", reason="drops the corner chains"), fix("8dc", "again"),
+    ])
+    assert "`10dc` makes 10 but the row states 8" in fake.calls[1]["prompt"]
+    assert "drops the corner chains" in fake.calls[3]["prompt"]
+    assert out[2].code == "14dc" and out[2].reading == ""  # three attempts, none accepted
+
+
+def test_gives_up_after_three_attempts_and_keeps_the_original(monkeypatch, tmp_path):
+    fake, out, _ = run(monkeypatch, tmp_path, [fix("3dcbad"), fix("5dcbad"), fix("6dcbad"), fix("8dc")],
+                       engine=PickyEngine())
+    assert len(fake.calls) == 3 and all(c["role"] == "translator" for c in fake.calls)
+    assert out[2].code == "14dc" and out[2].reading == "" and out[2].faithful is True
+
+
+def test_a_checker_rejection_also_counts_as_an_attempt(monkeypatch, tmp_path):
+    fake, out, _ = run(monkeypatch, tmp_path, [
+        fix("8dc"), judged("mismatch", reason="x"), fix("8dc", "e"), fix("8dc", "e"), fix("8dc", "e"),
+    ])
+    assert [c["role"] for c in fake.calls] == ["translator", "faithfulness", "translator", "translator"]
+    assert out[2].code == "14dc"

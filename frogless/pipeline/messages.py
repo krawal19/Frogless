@@ -1,6 +1,7 @@
 """The sentence(s) a crocheter reads: user_message(report) turns a PatternReport into plain words."""
 
 import re
+from difflib import SequenceMatcher
 
 from .report import PatternReport, Verdict
 from .verdict import TURN_COUNTS
@@ -58,6 +59,70 @@ def _short(word: str, row: int, said: int | None, made: int | None) -> str:
     return f"{word} {row} is {unit} {'short' if made < said else 'over'}"
 
 
+def _slide(words: list[str], i1: int, i2: int) -> list[str]:
+    """The removed words, moved to the equivalent spot that starts and ends at a sentence or phrase boundary
+    ("a. b. b. c" lost one "b.": say 'b.', not '. b' ...)."""
+    stop = (".", ",", ";", ":")
+    kept = words[:i1] + words[i2:]
+
+    def score(i: int) -> int:
+        return (i == 0 or words[i - 1].endswith(stop)) + words[i + (i2 - i1) - 1].endswith(stop)
+
+    starts = [i for i in range(len(words) - (i2 - i1) + 1) if words[:i] + words[i + (i2 - i1):] == kept]
+    best = max(starts, key=lambda i: (score(i), i == i1))
+    return words[best:best + (i2 - i1)]
+
+
+def change_text(original: str, fixed: str) -> str:
+    """What a fix does to a row, in a few words: 'remove ...', 'change ... to ...', 'add ... after ...'."""
+    a, b = _quote(original).split(), _quote(fixed).split()
+    ops = [o for o in SequenceMatcher(None, a, b, autojunk=False).get_opcodes() if o[0] != "equal"]
+    if not ops or len(ops) > 3:
+        return f"make it read '{_quote(fixed)}'"
+    parts = []
+    for tag, i1, i2, j1, j2 in ops:
+        old, new = " ".join(a[i1:i2]), " ".join(b[j1:j2])
+        if tag == "delete":
+            parts.append(f"remove '{' '.join(_slide(a, i1, i2))}'")
+        elif tag == "replace":
+            parts.append(f"change '{old}' to '{new}'")
+        else:
+            before = " ".join(a[max(0, i1 - 3):i1])
+            parts.append(f"add '{new}' after '{before}'" if before else f"add '{new}' at the start")
+    return parts[0] if len(parts) == 1 else ", ".join(parts[:-1]) + ", and " + parts[-1]
+
+
+def _fix_changes(v: Verdict, word: str) -> str:
+    return "; ".join(f"in {word} {f.row}, {change_text(f.original, f.fixed_text)}" for f in v.fixes)
+
+
+def _with_fixes(report: PatternReport, v: Verdict, word: str) -> str:
+    """A pattern that breaks, with the fixes that were re-checked and make it work."""
+    if v.observed.startswith("❌") and v.observed_row == v.row:
+        head = v.observed.rstrip()
+    else:
+        head = f"❌ Breaks at {word} {v.row}: {v.message.rstrip('.')}."
+        if v.observed_row is not None and v.observed_row != v.row:
+            head += f" The counts first fail at {word} {v.observed_row}."
+    many = len(v.fixes) > 1
+    return (f"{head} Suggested fix{'es' if many else ''}: {_fix_changes(v, word)} "
+            f"(re-checked: the pattern works with {'these fixes' if many else 'this fix'}).")
+
+
+def fix_lines(report: PatternReport) -> list[str]:
+    """The suggested fixes, for the person who wrote the pattern: what to change, why, and how the row then reads."""
+    v, word = report.verdict, _word(report)
+    if v is None or not v.fixes:
+        return []
+    lines = []
+    for f in v.fixes:
+        why = f" ({f.explanation.rstrip('.')})" if f.explanation else ""
+        lines.append(f"Suggested fix, {word} {f.row}: {change_text(f.original, f.fixed_text)}{why}")
+        lines.append(f"  {word} {f.row} would read: {_quote(f.fixed_text)}")
+    lines.append("Re-checked: the pattern works with " + ("these fixes." if len(v.fixes) > 1 else "this fix."))
+    return lines
+
+
 TURN_NOTE = "Works only if the turning chain counts as a stitch."
 CHAINS_NOTE = "The counts only work if the chain spaces are counted."
 
@@ -69,6 +134,11 @@ def _notes(v: Verdict) -> list[str]:
 
 
 def _ambiguous(v: Verdict, word: str) -> str:
+    if v.fixes:
+        rows = [f.row for f in v.fixes]
+        return ("⚠ Works if " + ", and if ".join(_interpretations(v, word))
+                + f"; read literally, {_rows(word, rows)} {'is' if len(set(rows)) == 1 else 'are'} wrong"
+                + f" (fix: {_fix_changes(v, word)}).")
     def result(alt):
         return "works" if alt.row is None else _short(word, alt.row, alt.said, alt.made)
 
@@ -114,17 +184,30 @@ def user_message(report: PatternReport) -> str:
         if clauses:
             text += " They also assume " + ", and ".join(clauses) + "."
         return text + (f" ⚠ {notes}" if notes else "")
+    if v.kind == "works_counts_only":
+        which = _rows(word, v.counted)
+        text = (f"✅ Stitch counts check out. {which} {'was' if len(set(v.counted)) == 1 else 'were'} read by AI and "
+                "checked by count only (they can't be modelled stitch by stitch).")
+        if v.rows:
+            text += f" {_rows(word, v.rows)} {'was' if len(set(v.rows)) == 1 else 'were'} also read by AI and couldn't be double-checked."
+        clauses = _interpretations(v, word)
+        if clauses:
+            text += " They also assume " + ", and ".join(clauses) + "."
+        return text + (f" ⚠ {notes}" if notes else "")
     if v.kind == "ambiguous":
         return _ambiguous(v, word)
+    if v.kind == "breaks" and v.fixes:
+        return _with_fixes(report, v, word)
     if v.kind == "breaks":
+        by_ai = " (counted by AI, not modelled)" if v.ledger else ""
         said, made = report.stated.get(v.row), report.computed.get(v.row)
         if said is not None and made is not None and said != made:
-            text = f"❌ Breaks at {word} {v.row}: the pattern says {said}, but the instructions make {made}."
+            text = f"❌ Breaks at {word} {v.row}: the pattern says {said}, but the instructions make {made}{by_ai}."
             if v.reading == TURN_COUNTS:
                 text = text[:-1] + " (counting the turning chain as a stitch)."
             return text
         detail = re.sub(r"^(rows?|rounds?)\s+\d+:\s*", "", v.message, flags=re.IGNORECASE).rstrip(".")
-        return f"❌ Breaks at {word} {v.row}: {detail}."
+        return f"❌ Breaks at {word} {v.row}: {detail}{by_ai}."
     return _unreadable(report, v, word)
 
 

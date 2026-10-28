@@ -105,7 +105,7 @@ def run_verdict(engine, case):
 def run_pipeline(engine, case):
     """The whole pipeline with the model. Works (also with interpretations) passes a working case;
     works_unverified is its own outcome (counts fit, but a row was only read by the model)."""
-    report = check_pattern(case["english"], engine=engine, use_model=True)
+    report = check_pattern(case["english"], engine=engine, use_model=True, review=False)
     v = report.verdict
     case["pipeline"] = {
         "kind": v.kind, "row": v.row, "message": v.message, "user_message": user_message(report),

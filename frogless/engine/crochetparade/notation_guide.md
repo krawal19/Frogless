@@ -60,7 +60,7 @@ ring.R0
 
 The first round goes into the ring with `(Nsc)@R0`. Later rounds have no `@`.
 
-Spiral rounds need no joining. For a joined round end the line with `,ss`, and start the next with `ch,` if the English chains. `ch` and `ss` are not counted and not worked into.
+Spiral rounds need no joining. A joined round ends with `,ss`; the next starts with `ch,` if the English chains. `ch` and `ss` are not counted or worked into. Example: `(6sc)@R0,ss` then `ch,6*[sc2inc],ss`.
 
 ## Flat pieces and turned rows
 
@@ -72,16 +72,15 @@ Foundation chain on its own line: `12ch`. Then:
 - The chains before the first stitch of a foundation row ARE its turning chain, so they are not counted: "Ch 15, sc in 2nd ch from hook" gives 14 sc (`sk,14sc`); "Ch 16, hdc in 3rd ch from hook" gives 14 hdc (`2sk,14hdc`); "Ch 17, dc in 4th ch from hook and in each ch across" gives 14 dc (`3sk,14dc`). "Skip 3 ch" is the same.
 - The turning chain counts as a stitch ONLY when the English says so ("ch 3 (counts as first dc)", "turning ch counts as a st"). Then write no `ch`, only the row's stitches with that one included: after 15 dc, "ch 3 (counts as dc), dc in each st across" is `15dc`, and the chains skipped in row 1 count as one stitch too: Ch 17, "dc in 4th ch from hook" gives 15 dc, `2sk,15dc` (one fewer `sk` than the English skips). If the English says nothing but its stated count only fits that reading, use it; never otherwise.
 - Joined rounds follow the same rule: a starting `ch 3 (counts as dc)` is the round's first dc, written as `dc` (label it `dc.S`), and "sl st to top of ch-3" is `ss@S`; without "counts as", `3ch` is just chains. A stated count like "(12 dc)" counts only that stitch type; a bare "(12)" leaves chains and chain spaces out. `ch 5 (counts as dc + ch 2)` is `dc,2ch`.
-- Avoid `@` on flat rows except as below: it switches off that row's count check.
-- One stitch too many is caught only on the next row, never in the final row.
+- "..., ch 3, turn" at the end of a row is the next row's turning chain; it may be written at the start of the next row instead.
 
 ## Labels and chain spaces
 
 Label a stitch or group with `.Name`, then work into it with `@Name` on a later line: `2ch.A` then `(3dc,2ch,3dc)@A`.
 
 - Give every corner or space its own label (`A`, `B`, `C2`), defined on an earlier line than its `@`. The same label on separate places is an error, as is an unknown label.
-- A line containing `@Name` is not count-checked, so be exact; neither are stitches worked into chains.
 - Squares: start a round at the first corner space with `(2dc,2ch,2dc)@A`. Write no `ss` into the space (`@A` is the join); a starting `ch 3 (counts as dc)` is that corner's first dc. Label every new corner chain (`2ch.E`) for the next round. A side is one stitch for each stitch of the previous round between two corner spaces, including the dc beside them (3, then 7, then 11). The last side wraps past the end of the previous line: first write the stitches that remain after its last corner, then the rest as `Ndc@W`, where `W` labels the stitches before that line's first chain (`3dc.S` in round 1, `2dc.W` in round 2), so label them.
+- **Into the next chain space** ("dc in next ch-1 sp", "3 dc in each ch-sp", "sk next ch-sp"): write `@sp` on that stitch or group: `dc@sp`, `dc3inc@sp`, `(2dc,ch,2dc)@sp`, `sk@sp` (`3dc@sp` is three separate stitches). Each `@sp` goes into the next chain space of the previous line in working order; the program resolves the order, so list them as the English works them. Write the spaces as plain `ch`, no labels, and the stitches between spaces plain: "*ch 1, sk 1, dc in next ch-1 sp* 3 times" is `3*[ch,sk,dc@sp]`. A space is chains with a stitch on both sides (not a turning chain); back-to-back chains with no stitch between ("ch 2, ch 2") are written as ONE longer chain, `4ch`, and are one space (a ch-4 space); never drop a chain the text names. The repeat count comes from the previous line: one `@sp` per space the English works. An unworked space fails the count check; "dc in 2nd ch of turning ch" is a plain `dc` after the stitches before it.
 - Several stitches in one stitch with chains between (V-stitch, shell): `dc,ch,dc@[@]`, where `@[@]` means the same stitch as before. Write each part as a one-stitch form: "(2 dc, ch 1, 2 dc) in next st" is `dc2inc,ch,dc2inc@[@]`.
 - Working back into chains made earlier in the same row (a leg): `ch,5ch.L,5sc@1L`; `@1L` uses a second attachment head so the row carries on in the previous row. Only if it is the last row of the piece; otherwise output `# CANNOT: stitches worked back into a chain, then more rows`.
 - Other attachment syntax (`@[row,stitch]`, `@[@+1]`, `~`, `^`, `!`) is unreliable here: output `# CANNOT: <reason>`.
@@ -90,7 +89,7 @@ Label a stitch or group with `.Name`, then work into it with `@Name` on a later 
 
 1. `ch5`, `sc*6`, `6x`, `*sc, inc* 6 times`, English words, or invented names (`inc`, `dec`, `sl`, `blo`, `sc2togbl`).
 2. `turn`, `ss` or a lone `ch` on its own line (it creates a phantom row).
-3. `@` except into a ring, to a defined label, or in the `@[@]` and `@1L` forms above.
+3. `@` except into a ring, to a defined label, or in the `@sp`, `@[@]` and `@1L` forms above.
 4. Drifting counts, commentary, dropped rows, a fenced answer.
 
 ## Worked examples
@@ -146,18 +145,6 @@ ring.R0
 ```
 ```counts
 12
-```
-
-```english
-Rd 1: 6 sc in ring, ss to join. Rd 2: ch 1, 2 sc in each st, ss to join.
-```
-```code
-ring.R0
-(6sc)@R0,ss
-ch,6*[sc2inc],ss
-```
-```counts
-6 12
 ```
 
 ```english
@@ -226,18 +213,6 @@ ring.R0
 ```
 
 ```english
-Rd 1: 12 sc in a magic ring. Rd 2: *sc in next 2 sts, 2 sc in next st*, rep from * 3 times (16 sc).
-```
-```code
-ring.R0
-(12sc)@R0
-4*[2sc,sc2inc]
-```
-```counts
-12 16
-```
-
-```english
 Rd 1: 18 sc in a magic ring. Rd 2: [{sc in next 2 sts, 2 sc in next} twice, sc in next 3 sts] twice. Rd 3: (dc, {ch 1, dc} twice) in each st.
 ```
 ```code
@@ -248,6 +223,18 @@ ring.R0
 ```
 ```counts
 18 22 66
+```
+
+```english
+Ch 10. Row 1: dc in 4th ch from hook, *ch 1, sk 1, dc in next ch* 3 times, turn. Row 2: ch 2, *ch 1, sk 1, dc in next ch-1 sp* 3 times, sk 1, dc in 2nd ch of turning ch.
+```
+```code
+10ch
+3sk,dc,3*[ch,sk,dc],turn
+2ch,3*[ch,sk,dc@sp],sk,dc
+```
+```counts
+4 4
 ```
 
 ```english

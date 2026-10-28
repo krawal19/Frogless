@@ -29,3 +29,4 @@ The row: [{index}] {source}
 Its current code: {code}
 The pattern says this row has {said}, but the current code makes {made}.
 Translate row {index} now, in the reading that gives {said} if there is one.
+{feedback}

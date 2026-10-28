@@ -73,6 +73,18 @@ class Engine(ABC):
     def translate(self, text: str) -> TranslateResult:
         """Turn written pattern text into engine code, line by line."""
 
+    def resolve(self, code: str) -> str:
+        """Engine code with "into the next chain space" (@sp) written out as named spaces.
+
+        Raises ValueError when an @sp has no space to reach. Code without @sp comes back unchanged.
+        """
+        return code
+
+    def is_marker(self, source: str) -> bool:
+        """True for a translated line that is only a marker of the translator ("start the next piece"):
+        no instruction, no code to check, and no row number of its own."""
+        return False
+
     @abstractmethod
     def stitches(self) -> list[str]:
         """Stitch names the translator knows."""

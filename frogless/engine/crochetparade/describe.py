@@ -226,6 +226,8 @@ def _place(attach, ctx, n=1):
         return "magic ring", False
     if attach == "[@]":
         return "the same st", False
+    if attach == "sp":
+        return "the next chain space of the row below", False
     head = _HEAD_RE.fullmatch(attach)
     if head:
         if head.group(1) != "1":
@@ -274,6 +276,8 @@ def _atom_core(a: Atom, ctx):
             raise _Unsupported("turn")
         return "turn"
     if name == "sk":
+        if a.attach == "sp" and n == 1 and not a.labels and not ctx.bare:
+            return "skip next chain space"
         if a.attach or a.labels or ctx.bare:
             raise _Unsupported("skip")
         if ctx.unit == "ch":

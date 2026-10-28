@@ -6,7 +6,7 @@ The code is written in a small language with its own conventions, taught by the 
 {guide}
 </guide>
 
-Judge only what the row asks the crocheter to DO: which stitches, how many, and where they go. Then answer with one verdict:
+Judge only what the row asks the crocheter to DO: which stitches, how many, and where they go. Every chain and every other stitch the row names must be present in the English. Merging consecutive chains into one longer chain ("ch 2, ch 2" as "ch 4") is fine; dropping any chain or stitch is a mismatch. Then answer with one verdict:
 
 - "faithful": the English does the same crochet as the written row: same stitches, same counts, same placement. Different wording is fine ("sc around" and "sc in next 6 sts", "inc" and "2 sc in next st", "ch 2 (counts as dc)" and "ch 2"). Ignore the "Round N:" / "Row N:" numbers in the English, they are only counted by the program. Ignore stated totals in the written row such as "(18)" or "= 12 sc": they are claims, not instructions, and a different check handles them. You cannot see the previous rows, so do not judge whether "next N sts" matches the stitches of the row before.
 - "interpreted": the written row is genuinely ambiguous or sloppy, so that it cannot be followed literally or contradicts itself, and the code picks ONE sensible reading of it. Example: "3dc in each dc on the side (3)" where the stated count only fits "1 dc in each of the 3 dc". Put what the code does in "reading" (for example "1 dc in each of the 3 dc") and why the text is unclear in "reason". Use this only for real ambiguity in the written text, never to excuse a difference you could simply point out.

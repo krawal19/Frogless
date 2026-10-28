@@ -202,6 +202,11 @@ def _stated_of(rows: list[_Row]) -> dict[int, int]:
     return {r.number: r.stated.count for r in rows if r.stated is not None}
 
 
+def _made_by_ledger(counted: list[_Row]) -> dict[int, int]:
+    """Row number -> the count the AI's reading of the row makes (stitch rows only)."""
+    return {r.number: r.result.ledger_makes for r in counted if r.result.ledger_uses or r.result.ledger_makes}
+
+
 def _describe(o: _Outcome) -> str:
     return f"{o.reading}: " + (o.message if o.row is not None else "works")
 
@@ -220,8 +225,10 @@ def decide_verdict(engine: Engine, text: str, rows: list[RowResult],
         error_row = culprit if culprit is not None else by_index.get(result.error.row, result.error.row)
         if error_row is None:
             error_row = 0
-    unread = [r for r in mapped if not r.result.code]
-    limit = unread[0].number if unread else None  # rows from here on cannot be trusted to check
+    no_code = [r for r in mapped if not r.result.code]
+    limit = no_code[0].number if no_code else None  # rows from here on cannot be trusted to check
+    counted = [r for r in no_code if r.result.ledger_ok is not None]  # read by AI, checked by count only
+    unread = [r for r in no_code if r.result.ledger_ok is None]
 
     stated_by_pattern = _turning_chain_stated(mapped)
     outcomes = [_evaluate(rd, mapped, result, error_row, limit, bool(stated_by_pattern)) for rd in READINGS]
@@ -243,7 +250,13 @@ def decide_verdict(engine: Engine, text: str, rows: list[RowResult],
                 stated, best.computed)
     if best.row is not None:
         return Verdict("breaks", best.message + note, row=best.row, reading=reading), stated, best.computed
-    unverified = [r.number for r in mapped if r.result.origin == "model" and r.result.faithful is not True]
+    ledger_break = next((r for r in counted if not r.result.ledger_ok), None)
+    if ledger_break is not None:  # counted by AI: the row's own words do not add up
+        return (Verdict("breaks", ledger_break.result.ledger_note, row=ledger_break.number, ledger=True),
+                stated, best.computed | _made_by_ledger(counted))
+    best.computed.update(_made_by_ledger(counted))
+    unverified = [r.number for r in mapped if r.result.origin == "model" and r.result.faithful is not True
+                  and r.result.ledger_ok is None]
     if unread:
         what = f"could not read {len(unread)} row(s), first: {unread[0].result.source[:60]}"
         return Verdict("unreadable", what, row=unread[0].number,
@@ -256,5 +269,10 @@ def decide_verdict(engine: Engine, text: str, rows: list[RowResult],
                 f"{'was' if len(unverified) == 1 else 'were'} translated by the model and not confirmed")
         return (Verdict("works_unverified", what, rows=unverified, reading=reading, interpreted=interpreted,
                         chains_counted=chains), stated, best.computed)
+    if counted:
+        numbers = [r.number for r in counted if r.result.ledger_uses or r.result.ledger_makes]
+        what = f"stitch counts check out{note}; {_names(numbers)} read by AI and checked by count only"
+        return (Verdict("works_counts_only", what, counted=numbers, rows=unverified, reading=reading,
+                        interpreted=interpreted, chains_counted=chains), stated, best.computed)
     return (Verdict("works", f"stitch counts and structure check out{note}", reading=reading,
                     interpreted=interpreted, chains_counted=chains), stated, best.computed)

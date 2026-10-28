@@ -56,6 +56,18 @@ def test_translate_returns_code_and_a_flag():
     assert get_engine().check(result.code).ok
 
 
+def test_rows_turn_even_when_the_range_does_not_say_so():
+    text = "Ch 13.\nRow 1: sc in 2nd ch from hook and across, turn (12)\nRows 2-4: ch 1, sc across (12)"
+    rows = [line for line in get_engine().translate(text).lines if line.source.startswith("row")]
+    assert all(line.code.endswith("turn") for line in rows[:-1])
+    assert not rows[-1].code.endswith("turn")  # the last row of the piece isn't turned
+
+
+def test_rounds_are_not_turned():
+    lines = get_engine().translate("Round 1: 6 sc in ring\nRound 2: inc in each st around (12)").lines
+    assert not any("turn" in line.code for line in lines)
+
+
 def test_stitches_lists_basics():
     names = get_engine().stitches()
     assert {"sc", "dc", "ch"} <= set(names)

@@ -95,3 +95,13 @@ def test_gate_leaves_unparsed_and_synthetic_lines_alone():
     lines = [TranslateLine("magic", "", False, "x"), TranslateLine("make a magic ring.", "ring", True, synthetic=True)]
     out = gate_translation(engine, TranslateResult(lines), "")
     assert out.lines == lines
+
+
+def test_bare_count_may_include_chains_but_typed_count_may_not():
+    from types import SimpleNamespace
+
+    from frogless.pipeline.gate import row_counts
+
+    granny = SimpleNamespace(stitch_count=20, stitch_types={"dc": 12, "ch": 8})
+    assert row_counts(granny, None) == [12, 20]  # "(12)" or "(20)" both fit
+    assert row_counts(granny, "dc") == [12]  # "(12 dc)" counts dc only

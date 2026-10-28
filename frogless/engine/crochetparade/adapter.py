@@ -93,6 +93,7 @@ class CrochetEngine(Engine):
                     synthetic=row["english"] in SYNTHETIC_SOURCES,
                 )
             )
+        _turn_rows(lines)
         return TranslateResult(lines=lines)
 
     def stitches(self) -> list[str]:
@@ -126,6 +127,22 @@ class CrochetEngine(Engine):
 
     def notation_guide(self) -> str:
         return NOTATION_GUIDE.read_text(encoding="utf-8")
+
+
+ROW_SOURCE = re.compile(r"^row\b", re.IGNORECASE)
+ENDS_WITH_TURN = re.compile(r"(^|,)\s*turn\s*$")
+
+
+def _turn_rows(lines):
+    """Flat rows are turned at the end even when the text doesn't say so; rounds aren't.
+
+    The translator drops "turn" when it expands a range like "Rows 2-8". Every row
+    line except the piece's last row gets one.
+    """
+    rows = [line for line in lines if ROW_SOURCE.match(line.source)]
+    for line in rows[:-1]:
+        if line.parsed and line.code and not ENDS_WITH_TURN.search(line.code):
+            line.code += ",turn"
 
 
 def create_engine(cfg) -> Engine:

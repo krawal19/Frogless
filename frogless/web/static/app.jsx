@@ -1,4 +1,4 @@
-// The Frogless page: pattern | result, As written | Corrected (only with corrections), picture, how we checked, developer panel (?dev=1).
+// The Frogless page: pattern | result, Your pattern | Frogless corrected (only with corrections), picture, how we checked, developer panel (?dev=1).
 // (useState, useEffect, useRef and the components come from ui.jsx.)
 const STAGES = ["translate", "check", "review"];
 
@@ -19,10 +19,7 @@ function Header() {
     <header className="masthead">
       <div className="masthead-inner">
         <Logo />
-        <div>
-          <h1>Frogless</h1>
-          <p>Know if a crochet pattern works before you pick up your hook</p>
-        </div>
+        <p>Know if a crochet pattern works before you pick up your hook</p>
       </div>
     </header>
   );
@@ -98,7 +95,7 @@ function ResultCard({ busy, elapsed, error, result, sizesTabs }) {
   } else if (result) {
     body = <Verdict result={result} />;
   } else {
-    body = <div className="empty"><Icon name="note" size={26} /><div><b>Nothing checked yet</b><p>Paste a pattern and press Check pattern. The verdict and any corrections appear here.</p></div></div>;
+    body = <div className="empty-art"><img src="img/swatch.webp" alt="A crochet hook beside stitch symbols and crocheted rows" /><p>Paste a pattern and press Check</p></div>;
   }
   return <Panel title="Result" className="result-card">{sizesTabs}{body}</Panel>;
 }
@@ -179,15 +176,15 @@ function App() {
         {result && (
           <div ref={resultsRef} className="results">
             {fixed && (
-              <Panel title="As written | Corrected" sub="changed text is highlighted on both sides">
+              <Panel title="Your pattern | Frogless corrected" sub="changed text is highlighted on both sides">
                 <Compare written={result.written_lines} corrected={result.corrected_lines} rebuilt={result.corrected_source === "rebuilt"} />
               </Panel>
             )}
             <Panel title="Picture" sub={fixed ? "original and corrected, side by side" : "of the pattern as written"}>
               <Picture key={`p${size}${fixed}`} loading={loading} onZoom={setZoom}
-                       panes={fixed ? [{ label: "Original (as written)", images: done ? render.written : failed },
-                                       { label: "Corrected", images: done ? render.corrected : failed }]
-                                    : [{ label: "As written", images: done ? render.written : failed }]} />
+                       panes={fixed ? [{ label: "Your pattern", images: done ? render.written : failed },
+                                       { label: "Frogless corrected", images: done ? render.corrected : failed }]
+                                    : [{ label: "Your pattern", images: done ? render.written : failed }]} />
             </Panel>
             {dev && <HowWeChecked result={result} />}
             {dev && <DevPanel result={result} data={data} size={size} renderSeconds={done ? render.render_seconds : null} />}

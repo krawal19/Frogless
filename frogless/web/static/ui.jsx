@@ -23,16 +23,11 @@ function Icon({ name, size = 20 }) {
 }
 
 function Logo() {
-  // three linked chain loops
   return (
-    <svg className="logo" width="46" height="46" viewBox="0 0 44 44" aria-hidden="true">
-      <rect width="44" height="44" rx="12" fill="var(--brand)" />
-      <g fill="none" stroke="var(--brand-ink)" strokeWidth="3" strokeLinecap="round">
-        <ellipse cx="13" cy="24" rx="6.5" ry="4.4" transform="rotate(-35 13 24)" />
-        <ellipse cx="22" cy="19" rx="6.5" ry="4.4" transform="rotate(35 22 19)" />
-        <ellipse cx="31" cy="24" rx="6.5" ry="4.4" transform="rotate(-35 31 24)" />
-      </g>
-    </svg>
+    <>
+      <img className="brand-logo light" src="img/logo-light.png" srcSet="img/logo-light.png 1x, img/logo-light@2x.png 2x" alt="Frogless" height="80" />
+      <img className="brand-logo dark" src="img/logo-dark.png" srcSet="img/logo-dark.png 1x, img/logo-dark@2x.png 2x" alt="" aria-hidden="true" height="80" />
+    </>
   );
 }
 
@@ -211,8 +206,14 @@ function alignByNumber(written, corrected) {
     rows.push({ kind: fixedRow ? "changed" : "same", ln: i + 1, rn: j + 1,
                 left: [{ t: left, hit: fixedRow }], right: [{ t: right, hit: fixedRow }] });
   });
-  cs.forEach((c, j) => { if (!used.has(j)) rows.push({ kind: FIX_TAIL.test(c.text) ? "added" : "extra", right: [{ t: c.text.replace(FIX_TAIL, "").trim(), hit: FIX_TAIL.test(c.text) }], rn: j + 1 }); });
-  return rows;
+  // rows the checker added (e.g. "Make a magic ring") keep their place in the corrected pattern: before the next paired row
+  const extraRow = (c, j) => ({ kind: FIX_TAIL.test(c.text) ? "added" : "extra", right: [{ t: c.text.replace(FIX_TAIL, "").trim(), hit: FIX_TAIL.test(c.text) }], rn: j + 1 });
+  const before = new Map();
+  cs.forEach((c, j) => { if (!used.has(j)) { let n = j + 1; while (n < cs.length && !used.has(n)) n++; const key = n < cs.length ? n : -1; before.set(key, [...(before.get(key) || []), extraRow(c, j)]); } });
+  const out = [];
+  rows.forEach((r) => { if (r.rn != null && before.has(r.rn - 1)) out.push(...before.get(r.rn - 1)); out.push(r); });
+  if (before.has(-1)) out.push(...before.get(-1));
+  return out;
 }
 
 function Parts({ parts, cls }) {
@@ -222,8 +223,8 @@ function Parts({ parts, cls }) {
 function Compare({ written, corrected, rebuilt }) {
   const rows = (rebuilt ? alignByNumber : alignRows)(written.filter((l) => l.text.trim()), corrected.filter((l) => l.text.trim()));
   return (
-    <div className="cmp" role="table" aria-label="As written compared with corrected">
-      <div className="cmp-head" role="row"><h3 role="columnheader">As written</h3><h3 role="columnheader">Corrected</h3></div>
+    <div className="cmp" role="table" aria-label="Your pattern compared with Frogless corrected">
+      <div className="cmp-head" role="row"><h3 role="columnheader">Your pattern</h3><h3 role="columnheader">Frogless corrected</h3></div>
       {rows.map((r, k) => (
         <div key={k} className={`cmp-row ${r.kind}`} role="row">
           <div className="cmp-cell left" role="cell">
@@ -291,7 +292,7 @@ function Picture({ panes, loading, onZoom }) {
       <div className={`chart-cols n${panes.length}`}>
         {panes.map((p, i) => (
           <div key={i} className="chart-col">
-            {panes.length > 1 && <h3>{p.label}</h3>}
+            <h3>{p.label}</h3>
             <ChartBox images={p.images} loading={loading} view={view} onZoom={onZoom} />
             {p.images && p.images.note && !loading && <p className="chart-note">{p.images.note}</p>}
           </div>

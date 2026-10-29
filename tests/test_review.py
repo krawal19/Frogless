@@ -359,3 +359,83 @@ def test_new_code_for_a_row_already_confirmed_faithful_is_a_reading_not_the_plai
     assert rep.review.outcome == "ambiguous" and len(script.prompts["bob"]) == 1  # Alice was not accepted as literal
     assert [i.row for i in rep.verdict.interpreted] == [3]
     assert rep.verdict.interpreted[0].reading == "12dc"  # what the code does, from the engine's English
+
+
+# ---- Bob may insert a missing row ----
+def insert_entry(after=1, text="Round 2b: 2 dc in each (12)", code="12dc", verdict="insert"):
+    return {"row": after, "quote": "", "verdict": verdict, "code": "", "explanation": "a round seems to be missing",
+            "fixed_text": "", "insert_after": after, "inserted_text": text, "inserted_code": code}
+
+
+def test_bobs_schema_has_the_insert_fields_and_alices_is_unchanged():
+    item = review.BOB_SCHEMA["properties"]["rows"]["items"]
+    assert item["required"][-3:] == ["insert_after", "inserted_text", "inserted_code"]
+    assert item["properties"]["verdict"]["enum"] == ["ok", "reading", "fix", "insert"]
+    assert "insert_after" not in review.ANSWER_SCHEMA["properties"]["rows"]["items"]["properties"]
+    assert review.SCHEMAS == {"alice": review.ANSWER_SCHEMA, "bob": review.BOB_SCHEMA}
+
+
+def test_an_insert_is_read_and_vetted():
+    got = review.read_reply(json.dumps({"summary": "s", "rows": [insert_entry(after=2)]}))
+    entries = got[1]
+    assert (entries[0].verdict, entries[0].row, entries[0].inserted_text) == ("insert", 2, "Round 2b: 2 dc in each (12)")
+    assert vet("bob", rows(), entries) == (entries, [])
+    kept, reasons = vet("alice", rows(), entries)  # Alice may not insert
+    assert kept == [] and "not allowed for you" in reasons[0]
+    bare = Entry(2, "", "insert", "", "x", "", "", "12dc")
+    assert vet("bob", rows(), [bare])[0] == [] and "needs inserted_text" in vet("bob", rows(), [bare])[1][0]
+    assert vet("bob", rows(), [Entry(9, "", "insert", "", "x", "", "Round 9", "12dc")])[1] == ["Row 9 is not a row of the pattern"]
+
+
+def test_a_fix_of_an_existing_row_is_preferred_to_an_insert(monkeypatch, tmp_path):
+    # both make the pattern work; fewer changes wins and a fix of what is written beats a new row
+    script = Script(alice=[[entry(verdict="reading")]], bob=[[insert_entry(after=1), FIX3]])
+    rep, _ = run(monkeypatch, tmp_path, script)
+    v = rep.verdict
+    assert v.kind == "breaks" and [(f.row, f.insert) for f in v.fixes] == [(3, False)]
+    assert len(rep.review.fixed_report.rows) == 3  # the insert was pruned
+
+
+def test_an_insert_shifts_the_rows_after_it():
+    from frogless.pipeline.review import _assemble, _position
+
+    new = Entry(1, "", "insert", "", "", "", "Round 2b: dc (12)", "12dc")
+    fix = Entry(2, "dc", "fix", "same", "", "Round 3: dc in each around (12)")
+    assembled = _assemble(rows(), [new, fix])
+    assert [r.source for r in assembled] == [R1, R2, "Round 2b: dc (12)", "Round 3: dc in each around (12)"]
+    assert [r.index for r in assembled] == [0, 1, 2, 3]
+    assert (_position([new, fix], new), _position([new, fix], fix)) == (2, 3)
+
+
+# ---- a row that is already right is not fixed ----
+FIX_R2 = entry(1, "(12)", "fix", explanation="Round 3 needs 13 to work into",
+               fixed_text="Round 2: 2 dc in each (13)", code="13dc")
+
+
+def test_rows_that_make_their_stated_count_before_the_break_are_settled():
+    assert review.settled_rows(FakeEngine(), TEXT, rows()) == {0, 1}  # Rounds 1-2 fit; Round 3 states 12, makes 13
+    assert review.settled_rows(FakeEngine(), TEXT, rows(r3_code="12dc")) == set()  # nothing breaks: nothing to protect
+    shaky = rows()
+    shaky[1] = replace(shaky[1], faithful=False)  # a row whose translation is in doubt is not protected
+    assert review.settled_rows(FakeEngine(), TEXT, shaky) == {0}
+
+
+def test_a_fix_of_a_row_that_is_already_right_is_refused_and_points_to_insert():
+    got = review.read_reply(json.dumps({"summary": "s", "rows": [FIX_R2]}))
+    kept, reasons = vet("bob", rows(), got[1], {0, 1})
+    assert kept == [] and "already makes its own stated count" in reasons[0] and "'insert'" in reasons[0]
+    assert vet("bob", rows(), got[1])[0] == got[1]  # without the rule the fix would have been taken
+    assert vet("bob", rows(), review.read_reply(json.dumps({"summary": "s", "rows": [FIX3]}))[1], {0, 1})[1] == []
+
+
+def test_bob_changing_a_right_row_is_sent_back_and_with_no_insert_the_break_stays_where_it_was(monkeypatch, tmp_path):
+    script = Script(alice=[[entry(verdict="reading")]], bob=[[FIX_R2]])
+    rep, _ = run(monkeypatch, tmp_path, script)
+    assert rep.review.outcome == "none" and rep.review.attempts == review.MAX_ATTEMPTS
+    assert rep.verdict.kind == "breaks" and rep.verdict.row == 3 and not rep.verdict.fixes
+    assert "already makes its own stated count" in script.prompts["bob"][1]  # Bob is told, and asked again
+
+
+def test_an_insert_after_a_right_row_is_not_refused():
+    entries = review.read_reply(json.dumps({"summary": "s", "rows": [insert_entry(after=1)]}))[1]
+    assert vet("bob", rows(), entries, {0, 1}) == (entries, [])

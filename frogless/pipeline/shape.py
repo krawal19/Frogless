@@ -53,6 +53,8 @@ class ShapeFinding:
     severity: str = "warning"  # "warning" or "info"
 
 
+POLYGON_KINDS = ("corners_changed", "uneven_corners", "uneven_sides")  # hints that read a round's corners
+
 # Words that say the finished piece is meant to lie flat.
 _FLAT_WORDS = re.compile(
     r"\b(coasters?|place ?mats?|doil(y|ies)|blankets?|afghans?|throws?|rugs?|trivets?|pot ?holders?"
@@ -180,9 +182,10 @@ def check_circle_growth(rows: list[RowInfo]) -> list[ShapeFinding]:
     round. A piece with a round of 3 or more corners is a polygon, not a circle: nothing to say.
     """
     findings: list[ShapeFinding] = []
+    place = _chain_places(rows)
     while rows and _count(rows[0]) == 0:
         rows = rows[1:]
-    if len(rows) < 2 or any(len(corner_sides(row)) >= 3 for row in rows):
+    if len(rows) < 2 or any(len(corner_sides(row, place)) >= 3 for row in rows):
         return findings
     delta = [_count(rows[k]) - _count(rows[k - 1]) for k in range(1, len(rows))]
     k = 1  # rows[k] is the round being judged; delta[k - 1] is its growth
@@ -259,8 +262,9 @@ def check_even_spacing(rows: list[RowInfo], cyclic: bool = False) -> list[ShapeF
     (cyclic) the gap from the last back to the first counts too, so a staggered start is fine.
     Rows with corners are left to check_polygon, where uneven spacing is the design."""
     findings: list[ShapeFinding] = []
+    place = _chain_places(rows)
     for row in rows:
-        if len(_corner_groups(row)[1]) >= 3:
+        if len(_corner_groups(row, place)[1]) >= 3:
             continue
         stitches = _counted(row)
         for what in ("inc", "dec"):
@@ -281,17 +285,43 @@ def check_even_spacing(rows: list[RowInfo], cyclic: bool = False) -> list[ShapeF
 # ---- 3. squares and polygons ----------------------------------------------------------------
 
 
-def _shares(a: StitchInfo, b: StitchInfo) -> bool:
-    return bool(set(map(tuple, a.into)) & set(map(tuple, b.into)))
+Places = dict[tuple[int, int], tuple[int, int]]
 
 
-def _corner_groups(row: RowInfo) -> tuple[list[StitchInfo], list[list[int]]]:
+def _chain_places(rows: list[RowInfo]) -> Places:
+    """(row, position) of every chain of a chain space -> (row, position of the space's first chain). The graph
+    names single chains, so the stitches of a corner worked into a long space (2dc, ch 2, 2dc into a ch-4 corner:
+    one stitch per chain) look as if they went into different places. A foundation chain (row 0) is no space."""
+    place: Places = {}
+    for row in rows:
+        if row.index < 1:
+            continue
+        start = last = None
+        for s in sorted(row.stitches, key=lambda s: s.position):
+            if _is_chain(s):
+                start = s.position if last is None or s.position != last + 1 else start
+                place[(row.index, s.position)] = (row.index, start)
+                last = s.position
+            else:
+                last = None
+    return place
+
+
+def _shares(a: StitchInfo, b: StitchInfo, place: Places | None = None) -> bool:
+    """Whether two stitches are worked into the same place (with `place`: or the same chain space)."""
+    if place is None:
+        return bool(set(map(tuple, a.into)) & set(map(tuple, b.into)))
+    return bool({place.get(tuple(i), tuple(i)) for i in a.into} & {place.get(tuple(i), tuple(i)) for i in b.into})
+
+
+def _corner_groups(row: RowInfo, place: Places | None = None) -> tuple[list[StitchInfo], list[list[int]]]:
     """Find the corners of a round. Returns (items, groups): the row's chains and counted
     stitches in working order (rotated to start at a counted stitch, so a chain at the end
     joins one at the start), and each corner as a list of item indexes.
 
     A corner is a run of chains between two stitches worked into the same place, with the stitches
-    on both sides that share that place; or a run of stitches labelled "corner"."""
+    on both sides that share that place; or a run of stitches labelled "corner". When the stitches only
+    share the chain space as a whole (`place`, from _chain_places), that decides the corner and its stitches."""
     items = [s for s in sorted(row.stitches, key=lambda s: s.position) if _is_chain(s) or _is_counted(s)]
     first = next((i for i, s in enumerate(items) if _is_counted(s)), None)
     if first is None or sum(_is_counted(s) for s in items) < 2:
@@ -317,16 +347,17 @@ def _corner_groups(row: RowInfo) -> tuple[list[StitchInfo], list[list[int]]]:
             end += 1
         left, right = i - 1, (end + 1) % m
         labelled = any("corner" in items[j].label.lower() for j in range(i, end + 1))
-        if labelled or _shares(items[left], items[right]):
+        use = None if _shares(items[left], items[right]) else place  # same space, not the same chain: a long corner
+        if labelled or _shares(items[left], items[right], use):
             # (a corner at the end of the round reaches back to stitches at its start, and the
             # other way round, so these walk around the round)
             lo = left
             while ((lo - 1) % m not in taken and lo - 1 > left - m and _is_counted(items[(lo - 1) % m])
-                   and _shares(items[(lo - 1) % m], items[left])):
+                   and _shares(items[(lo - 1) % m], items[left], use)):
                 lo -= 1
             hi = right if right > end else right + m
             while ((hi + 1) % m not in taken and hi + 1 < lo + m and _is_counted(items[(hi + 1) % m])
-                   and _shares(items[(hi + 1) % m], items[right])):
+                   and _shares(items[(hi + 1) % m], items[right], use)):
                 hi += 1
             add([j % m for j in range(lo, end + 1)] + [j % m for j in range(right if right > end else right + m, hi + 1)])
         i = end + 1
@@ -340,17 +371,17 @@ def _corner_groups(row: RowInfo) -> tuple[list[StitchInfo], list[list[int]]]:
     return items, groups
 
 
-def corner_spaces(row: RowInfo) -> list[int]:
+def corner_spaces(row: RowInfo, place: Places | None = None) -> list[int]:
     """The number of chains in each corner space of a round, in working order (corners made of
     stitches labelled "corner", with no chains, are left out)."""
-    items, groups = _corner_groups(row)
+    items, groups = _corner_groups(row, place)
     sizes = [(min(g), sum(_is_chain(items[i]) for i in g)) for g in groups]
     return [n for _, n in sorted(sizes) if n]
 
 
-def corner_sides(row: RowInfo) -> list[int]:
+def corner_sides(row: RowInfo, place: Places | None = None) -> list[int]:
     """Stitches on each side of a round, between its corner groups (corner stitches excluded)."""
-    items, groups = _corner_groups(row)
+    items, groups = _corner_groups(row, place)
     if not groups:
         return []
     m = len(items)
@@ -383,15 +414,16 @@ def check_polygon(rows: list[RowInfo]) -> list[ShapeFinding]:
     rectangle: opposite sides then need to match instead."""
     findings: list[ShapeFinding] = []
     prev_corners = 0
+    place = _chain_places(rows)
     for row in rows:
-        sides = corner_sides(row)
+        sides = corner_sides(row, place)
         corners = len(sides)
         if prev_corners and corners and prev_corners != corners and max(prev_corners, corners) >= 3:
             findings.append(ShapeFinding(row.index, "corners_changed", (
                 f"Round {row.index} has {corners} corners but the round before had {prev_corners}. "
                 f"The corner count should stay the same, or the shape will twist.")))
         prev_corners = corners
-        spaces = corner_spaces(row)
+        spaces = corner_spaces(row, place)
         if corners >= 3 and len(spaces) >= 3 and len(set(spaces)) > 1:
             findings.append(ShapeFinding(row.index, "uneven_corners", f"Round {row.index}: {_corner_sizes(spaces)} "
                 f"The corner spaces of a round should match, or the corners will come out uneven."))

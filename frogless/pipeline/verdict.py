@@ -242,7 +242,9 @@ def decide_verdict(engine: Engine, text: str, rows: list[RowResult],
     note = " (the turning chain counts as a stitch here)" if reading == TURN_COUNTS else ""
     chains = best.row is None and bool(best.chain_rows)
 
-    if stated_by_pattern is None and plain.fits == turn.fits and plain.row != turn.row:  # equally good, different answers
+    foundation = next((r.info.stitch_count for r in mapped if r.info is not None and r.info.index == 0), None)
+    if (stated_by_pattern is None and plain.fits == turn.fits and plain.row != turn.row  # equally good, different answers
+            and _turn_is_clear(mapped, foundation, None)):  # ... and counting the chain is not just a stray row's need
         broken = [o.row for o in outcomes if o.row is not None]
         what = "the stated counts fit two ways of counting, which disagree on where this pattern breaks"
         return (Verdict("ambiguous", what, row=min(broken), readings=[_describe(o) for o in outcomes],
@@ -276,3 +278,49 @@ def decide_verdict(engine: Engine, text: str, rows: list[RowResult],
                         interpreted=interpreted, chains_counted=chains), stated, best.computed)
     return (Verdict("works", f"stitch counts and structure check out{note}", reading=reading,
                     interpreted=interpreted, chains_counted=chains), stated, best.computed)
+
+
+@dataclass
+class CountingFit:
+    """A row that misses its stated count the plain way but fits under another way of counting."""
+
+    readings: list[str]  # the counting readings (not PLAIN) under which its stated count fits
+    said: int  # the count the row states
+    made: int  # the count the instructions make, counting plainly
+
+
+def _turn_is_clear(mapped: list[_Row], foundation: int | None, said: bool | None) -> bool:
+    """Whether the turning chain counting as a stitch is clear enough to be worth mentioning: the pattern says so
+    itself, or at least half of the rows that state a count fit only that way (a tie is as good as the default, so it
+    cannot be called the default). Otherwise the default (not counted) stands."""
+    if said is not None:
+        return said
+    stated = [r for r in mapped if r.info is not None and r.info.index >= 1 and r.stated is not None]
+    needs = [r for r in stated if r.stated.count not in _counts(r, PLAIN, foundation, False)
+             and r.stated.count in _counts(r, TURN_COUNTS, foundation, False)]
+    return bool(needs) and 2 * len(needs) >= len(stated)
+
+
+def counting_fits(engine: Engine, rows: list[RowResult], result: CheckResult | None) -> dict[int, CountingFit]:
+    """Row number -> CountingFit, for every row that states a count, misses it counted plainly and fits it under
+    another accepted reading (turning chain counted as a stitch). Rows that fit plainly, or under no reading, are left out.
+    Empty unless that reading is clear: the pattern says "counts as", or most rows with a stated count need it."""
+    if result is None or not any(r.code for r in rows):
+        return {}
+    mapped, _ = _map_rows(engine, rows, result)
+    foundation = next((r.info.stitch_count for r in mapped if r.info is not None and r.info.index == 0), None)
+    stated_by_pattern = _turning_chain_stated(mapped)
+    if not _turn_is_clear(mapped, foundation, stated_by_pattern):
+        return {}
+    said = bool(stated_by_pattern)
+    out = {}
+    for row in mapped:
+        if row.info is None or row.info.index < 1 or row.stated is None:
+            continue
+        counts = {rd: _counts(row, rd, foundation, said) for rd in READINGS}
+        if row.stated.count in counts[PLAIN]:
+            continue
+        fits = [rd for rd in READINGS if rd != PLAIN and row.stated.count in counts[rd]]
+        if fits:
+            out[row.number] = CountingFit(fits, row.stated.count, counts[PLAIN][0])
+    return out

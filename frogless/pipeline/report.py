@@ -50,10 +50,14 @@ class Alternative:
 class Fix:
     """A suggested change to the written pattern that was re-checked and makes the whole pattern work."""
 
-    row: int  # the pattern's row/round number
-    original: str  # the row as written
-    fixed_text: str  # the whole row as it would read after the fix
+    row: int  # the pattern's row/round number (for an insert: the number the new row takes)
+    original: str  # the row as written ("" for an insert)
+    fixed_text: str  # the whole row as it would read after the fix (for an insert: the new row)
     explanation: str  # what is wrong with the written row
+    insert: bool = False  # a row seems to be missing: the fix adds a whole new row
+    conditional: str = ""  # the counting reading under which the row already works as written ("" for a real break)
+    said: int | None = None  # with `conditional`: the count the row states
+    made: int | None = None  # with `conditional`: the count the row makes counted the plain way
 
 
 @dataclass

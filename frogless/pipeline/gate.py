@@ -4,7 +4,8 @@ Many pattern lines state their stitch count, e.g. "Row 2: sc across, ch 1, turn 
 The rules translator sometimes reads such a line wrongly without flagging it. The gate
 re-computes the count from the translated code (using the engine's checker) and, if it
 differs from the stated count, marks the line parsed=False so the model translates it.
-Plain code, no model calls.
+Plain code, no model calls. It also flags a line whose code leaves out an item the text names
+(omissions.py), whatever the count says.
 
 How the count is computed: check the code of every still-parsed line up to and
 including this one and take the last row's stitch count. A stated stitch type ("24 dc")
@@ -24,6 +25,7 @@ from dataclasses import replace
 
 from ..engine import Engine, TranslateResult
 from ..patterns.stated import stated_count
+from .omissions import left_out_item
 
 
 def row_counts(row, stitch: str | None) -> list[int]:
@@ -55,6 +57,12 @@ def gate_translation(engine: Engine, result: TranslateResult, original_text: str
         if not line.parsed or not line.code:
             lines.append(line)
             hole = hole or (not line.parsed and not line.synthetic)
+            continue
+        left_out = "" if line.synthetic else left_out_item(engine, line.source, line.code)
+        if left_out:
+            hole = True
+            lines.append(replace(line, code="", parsed=False,
+                                 reason=f"the translation leaves out part of the row: '{left_out}'"))
             continue
         stated = None if line.synthetic else stated_count(line.source)
         if stated is None or stated.multi_size:

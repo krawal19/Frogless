@@ -3,7 +3,7 @@
 import re
 from difflib import SequenceMatcher
 
-from .report import PatternReport, Verdict
+from .report import Fix, PatternReport, Verdict
 from .verdict import TURN_COUNTS
 
 _LABEL = re.compile(r"^\s*(?P<word>rows?|rounds?|rnds?|r)\b\s*[\d\s\-–,&and]*:\s*", re.IGNORECASE)
@@ -92,21 +92,55 @@ def change_text(original: str, fixed: str) -> str:
     return parts[0] if len(parts) == 1 else ", ".join(parts[:-1]) + ", and " + parts[-1]
 
 
+def _labelled(f: Fix, word: str) -> str:
+    """An inserted row as it would be written, with its label."""
+    text = f.fixed_text.strip()
+    return text if _LABEL.match(text) else f"{word} {f.row}: {text}"
+
+
+def _fix_phrase(f: Fix, word: str) -> str:
+    if f.insert:
+        return f"insert '{_labelled(f, word)}'"
+    return f"in {word} {f.row}, {change_text(f.original, f.fixed_text)}"
+
+
 def _fix_changes(v: Verdict, word: str) -> str:
-    return "; ".join(f"in {word} {f.row}, {change_text(f.original, f.fixed_text)}" for f in v.fixes)
+    return "; ".join(_fix_phrase(f, word) for f in v.fixes if not f.conditional)
+
+
+def _conditional_note(f: Fix, word: str) -> str:
+    """A row that is right if the turning chain counts as a stitch, with the fix if it does not."""
+    unit = "" if f.said is None or f.made is None else (
+        "one" if abs(f.said - f.made) == 1 else str(abs(f.said - f.made)))
+    off = "" if not unit else f"it is {unit} {'short' if f.made < f.said else 'over'}"
+    return (f"{word} {f.row} works if the turning chain counts as a stitch; if not, {off or 'it breaks'} "
+            f"(fix: {change_text(f.original, f.fixed_text)})")
+
+
+def _conditional_notes(v: Verdict, word: str) -> str:
+    notes = [_conditional_note(f, word) for f in v.fixes if f.conditional]
+    return "⚠ " + "; ".join(notes) + "." if notes else ""
 
 
 def _with_fixes(report: PatternReport, v: Verdict, word: str) -> str:
-    """A pattern that breaks, with the fixes that were re-checked and make it work."""
-    if v.observed.startswith("❌") and v.observed_row == v.row:
+    """A pattern that breaks, with the fixes that were re-checked and make it work (and the conditional notes)."""
+    real = [f for f in v.fixes if not f.conditional]
+    first = real[0]
+    if first.insert:
+        head = f"❌ Breaks at {word} {v.row}: a {word.lower()} seems to be missing before it."
+    elif v.observed.startswith("❌") and v.observed_row == v.row:
         head = v.observed.rstrip()
     else:
         head = f"❌ Breaks at {word} {v.row}: {v.message.rstrip('.')}."
-        if v.observed_row is not None and v.observed_row != v.row:
+        conditional_rows = {f.row for f in v.fixes if f.conditional}
+        if v.observed_row is not None and v.observed_row != v.row and v.observed_row not in conditional_rows:
             head += f" The counts first fail at {word} {v.observed_row}."
-    many = len(v.fixes) > 1
-    return (f"{head} Suggested fix{'es' if many else ''}: {_fix_changes(v, word)} "
-            f"(re-checked: the pattern works with {'these fixes' if many else 'this fix'}).")
+    many = len(real) > 1
+    lone_insert = len(real) == 1 and first.insert
+    text = (f"{head} Suggested{'' if lone_insert else ' fixes' if many else ' fix'}: {_fix_changes(v, word)} "
+            f"(re-checked: the pattern works with {'these fixes' if many else 'it' if lone_insert else 'this fix'}).")
+    notes = _conditional_notes(v, word)
+    return f"{text} {notes}" if notes else text
 
 
 def fix_lines(report: PatternReport) -> list[str]:
@@ -117,7 +151,12 @@ def fix_lines(report: PatternReport) -> list[str]:
     lines = []
     for f in v.fixes:
         why = f" ({f.explanation.rstrip('.')})" if f.explanation else ""
-        lines.append(f"Suggested fix, {word} {f.row}: {change_text(f.original, f.fixed_text)}{why}")
+        if f.insert:
+            lines.append(f"Suggested fix: insert a new {word.lower()} as {word} {f.row}{why}")
+            lines.append(f"  {word} {f.row} would read: {_quote(f.fixed_text)}")
+            continue
+        only = " (only if the turning chain does not count as a stitch)" if f.conditional else ""
+        lines.append(f"Suggested fix, {word} {f.row}{only}: {change_text(f.original, f.fixed_text)}{why}")
         lines.append(f"  {word} {f.row} would read: {_quote(f.fixed_text)}")
     lines.append("Re-checked: the pattern works with " + ("these fixes." if len(v.fixes) > 1 else "this fix."))
     return lines
@@ -134,6 +173,8 @@ def _notes(v: Verdict) -> list[str]:
 
 
 def _ambiguous(v: Verdict, word: str) -> str:
+    if v.fixes and all(f.conditional for f in v.fixes):
+        return _conditional_notes(v, word)
     if v.fixes:
         rows = [f.row for f in v.fixes]
         return ("⚠ Works if " + ", and if ".join(_interpretations(v, word))

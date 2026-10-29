@@ -62,6 +62,14 @@ def _written(source: str) -> str:
     return _LABEL.sub("", source.strip(), count=1).strip()
 
 
+def _mark(f) -> str:
+    if f.insert:
+        return "[suggested fix: this row was added]"
+    if f.conditional:
+        return f"[works if the turning chain counts as a stitch; if not, suggested fix: {change_text(f.original, f.fixed_text)}]"
+    return f"[suggested fix: {change_text(f.original, f.fixed_text)}]"
+
+
 def clean_pattern(report: PatternReport) -> str:
     """A clean written pattern from the checked code, in US terms; plain text, no engine code.
 
@@ -69,7 +77,7 @@ def clean_pattern(report: PatternReport) -> str:
     "[suggested fix: ...]" (the same mark goes on the fixed rows of an ambiguous pattern).
     """
     v = report.verdict
-    marks = {f.row: f"[suggested fix: {change_text(f.original, f.fixed_text)}]" for f in (v.fixes if v else [])}
+    marks = {f.row: _mark(f) for f in (v.fixes if v else [])}
     fixed = report.review.fixed_report if report.review else None
     if v and v.kind == "breaks" and v.fixes and fixed is not None:
         word = _word_of(report)

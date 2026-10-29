@@ -215,3 +215,20 @@ def test_chain_ring_square_shape_hints():
     # a square: no circle-growth hint; round 1's last corner is a ch-4 space, the others ch-2
     assert [(f.row, f.kind) for f in found] == [(1, "uneven_corners")]
     assert "one corner is a ch-4 space, the others are ch-2" in found[0].message
+
+
+def test_a_corner_worked_one_stitch_per_chain_of_a_long_space_is_still_a_corner():
+    # round 1's last corner is one ch-4 space; round 2 puts 2dc, ch 2, 2dc into it, one stitch in each chain of it
+    from frogless.pipeline.shape import check_shape, corner_sides
+
+    ring = "(4ch,ss@[%,0]).R_1\n(dc.S,2ch.A,3dc,2ch.B,3dc,2ch.C,3dc,4ch.D,2dc)@R_1,ss@S\n"
+    round_2 = ("(dc.W,2ch.E,2dc)@A,3dc,(2dc,2ch.F,2dc)@B,3dc,(2dc,2ch.G,2dc)@C,3dc,"
+               "(2dc,2ch.H,2dc)@D,3dc,dc,ss@W")
+    round_3 = ("(dc.V,2ch.I,2dc)@E,7dc,(2dc,2ch.J,2dc)@F,7dc,(2dc,2ch.K,2dc)@G,7dc,"
+               "(2dc,2ch.L,2dc)@H,7dc,dc,ss@V")
+    result, rows = rows_of(ring + round_2 + "\n" + round_3)
+    assert result.ok, result.error
+    assert [len(corner_sides(rows[i])) for i in (1, 2, 3)] == [4, 3, 4]  # the plain graph loses the ch-4 corner
+    found = check_shape(result.rows, from_ring=True)
+    assert "corners_changed" not in [f.kind for f in found]  # four corners in every round: nothing twists
+    assert [(f.row, f.kind) for f in found] == [(1, "uneven_corners")]

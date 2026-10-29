@@ -3,6 +3,8 @@
 Code -> English via the engine's describe(), then a model compares it with the original
 row (one call per row). On a mismatch the row is translated again, told what was wrong; after
 three translation attempts in all, the row is marked unreadable rather than guessed at.
+An "interpreted" verdict is refused (as a mismatch) for code that differs from the first translation and
+deletes from it or moves its stitches (guards.py).
 
 Which rows: every row that has code (the model's and the rules translator's, also rules rows that
 state a count; only the magic ring the translator adds itself is skipped). A mismatching rule row goes
@@ -19,6 +21,7 @@ from pathlib import Path
 
 from ..engine import Engine
 from ..models.client import ROOT
+from .guards import reading_problem
 from .report import RowResult
 from .translate import CACHE_DIR as TRANSLATE_CACHE_DIR
 from .translate import ask_cached, retranslate_row
@@ -115,6 +118,7 @@ def check_faithfulness(engine: Engine, text: str, rows: list[RowResult], cache_d
     rows, total, guide = list(rows), 0.0, engine.notation_guide()
     for i in range(len(rows)):
         attempts = 1  # the translation we were given
+        first = rows[i].code  # ... the literal one, which a later "interpreted" code must not delete from
         while _needs_check(rows[i]):
             rejected = _rejection(engine, rows, i)
             if rejected:
@@ -135,6 +139,11 @@ def check_faithfulness(engine: Engine, text: str, rows: list[RowResult], cache_d
             else:
                 answer, cost = _judge(guide, text, rows[i], english, cache_dir)
             total += cost
+            if answer["verdict"] == "interpreted" and rows[i].code != first:  # hard rule: no deleting, no moving
+                problem = reading_problem(engine, "\n".join(r.code for r in rows[:i] if r.code), first, rows[i].code,
+                                          rows[i].source)
+                if problem:
+                    answer = {"verdict": "mismatch", "reading": "", "reason": problem}
             if answer["verdict"] != "mismatch":
                 rows[i] = _with_answer(rows[i], english, answer)
                 break

@@ -6,8 +6,10 @@ Which rows: rows with code that state a count (not multi-size) where the code, c
 prefix of the pattern the way the verdict does it, fits the count under neither counting
 reading of the turning chain. Those the verdict can already explain are left alone.
 
-The guard: the new code is used only if it differs, makes the stated count by itself, and the
-faithfulness checker (told the translator's explanation) calls it "interpreted" or "faithful".
+The guards: the new code is refused if it drops stitches or chains the row names, or moves stitches the row
+places explicitly (guards.py): a reading may reinterpret the words, never delete from them. Otherwise it is
+used only if it differs, makes the stated count by itself, and the faithfulness checker (told the translator's
+explanation) calls it "interpreted" or "faithful".
 Then the row is marked interpreted, so the user is told what the pattern is assumed to mean.
 Anything else keeps the original code and the row still breaks.
 
@@ -25,6 +27,7 @@ from ..models.client import ROOT
 from ..patterns.stated import stated_count, turning_chain_says
 from .faithful import CACHE_DIR as FAITHFUL_CACHE_DIR
 from .faithful import _english, _judge
+from .guards import reading_problem
 from .report import RowResult
 from .translate import CACHE_DIR as TRANSLATE_CACHE_DIR
 from .translate import _rows_listing, ask_cached
@@ -136,6 +139,11 @@ def reconcile_counts(engine: Engine, text: str, rows: list[RowResult], cache_dir
                 problem = _engine_problem(engine, rows, i, code)
                 tried.append(f"`{code}` was rejected by the engine: "
                              + (problem or "it does not check as part of the pattern"))
+                continue
+            problem = reading_problem(engine, "\n".join(r.code for r in rows[:i] if r.code), rows[i].code, code,
+                                      rows[i].source)
+            if problem:
+                tried.append(f"`{code}` was rejected: {problem}")
                 continue
             if not _fits(stated, again[1], any_reading=False):
                 made = sorted(set(again[1][PLAIN]))

@@ -1,6 +1,8 @@
 """Engine-neutral result types and the interface every backend implements."""
 
+import re
 from abc import ABC, abstractmethod
+from collections import Counter
 from dataclasses import dataclass, field
 
 
@@ -39,6 +41,35 @@ class CheckResult:
     warnings: list[str] = field(default_factory=list)
     rows: list[RowInfo] = field(default_factory=list)
     stats: dict = field(default_factory=dict)  # raw numbers, e.g. total_stitches
+
+
+@dataclass(frozen=True)
+class RowItem:
+    """One stitch or chain the way a row's code writes it: `count` of the same kind in a row ("7dc"),
+    inside `times` repeats of the groups around it."""
+
+    kind: str  # e.g. "dc", "sc2inc", "ch"
+    count: int = 1
+    times: int = 1
+
+
+@dataclass
+class ReadingDiff:
+    """How another reading of a row (the candidate) differs from its literal code, structurally."""
+
+    dropped: bool  # the candidate is the literal with items removed (a strict sub-multiset of the items)
+    same_shape: bool  # same items in the same order and groups; only the numbers beside them differ
+    number_changes: list[tuple[str, int, int]]  # (kind, literal count, candidate count) for each changed number
+    consumes: tuple[int, int] | None  # stitches of the earlier rows each works into; None if the engine cannot say
+
+
+_FAMILY = re.compile(r"^(?:fp|bp)?(ss|sc|hdc|dc|dtr|ttr|trtr|tr|ch|sk)")
+
+
+def stitch_family(kind: str) -> str:
+    """The stitch a kind is a form of: "dc2inc" and "dcfl" are "dc"; "" for an unknown kind."""
+    m = _FAMILY.match(kind)
+    return m.group(1) if m else ""
 
 
 @dataclass
@@ -84,6 +115,52 @@ class Engine(ABC):
         """True for a translated line that is only a marker of the translator ("start the next piece"):
         no instruction, no code to check, and no row number of its own."""
         return False
+
+    # ---- comparing readings of one row ----
+    def row_items(self, code: str) -> list[RowItem] | None:
+        """The stitches and chains one row's code writes, in order, or None when the engine cannot list them."""
+        return None
+
+    def consumes(self, before: str, code: str) -> int | None:
+        """How many stitches of the earlier rows the last row of `before` + `code` works into (the stitch graph),
+        or None when the code does not check."""
+        check = self.check("\n".join(c for c in (before, code) if c.strip()))
+        if not check.rows or (check.error is not None and check.error.kind == "invalid"):
+            return None
+        row = check.rows[-1]
+        if not row.stitches:
+            return None
+        return len({target for st in row.stitches for target in st.into})
+
+    def compare_readings(self, literal: str, candidate: str, before: str = "") -> ReadingDiff | None:
+        """How `candidate` differs structurally from `literal` (both the code of the same row, after the code
+        of the rows `before` it). None when either cannot be listed."""
+        lit, cand = self.row_items(literal), self.row_items(candidate)
+        if not lit or not cand:
+            return None
+        lit_kinds, cand_kinds = Counter(i.kind for i in lit), Counter(i.kind for i in cand)
+        dropped = (all(lit_kinds[k] >= n for k, n in cand_kinds.items())
+                   and sum(cand_kinds.values()) < sum(lit_kinds.values()))
+        same_shape = [(i.kind, i.times) for i in lit] == [(i.kind, i.times) for i in cand]
+        changes = [(a.kind, a.count, b.count) for a, b in zip(lit, cand) if same_shape and a.count != b.count]
+        a, b = self.consumes(before, literal), self.consumes(before, candidate)
+        return ReadingDiff(dropped, same_shape, changes, (a, b) if a is not None and b is not None else None)
+
+    def reading_drops_items(self, literal: str, candidate: str, before: str = "", named: tuple[str, ...] = ()) -> bool:
+        """True when `candidate` is `literal` with stitches or chains removed: a strict sub-multiset of its items,
+        or a stitch family the row's text names (`named`, e.g. "sc", "ch") that is gone from it entirely.
+        A different number on an item ("7dc" read as "3dc") is not a removal. With no `literal`, only `named` counts."""
+        cand = self.row_items(candidate)
+        if cand is None:
+            return False
+        if literal.strip() and cand:
+            diff = self.compare_readings(literal, candidate, before)
+            if diff is not None and diff.dropped:
+                return True
+        lit = self.row_items(literal) if literal.strip() else None
+        worked = {stitch_family(i.kind) for i in lit} if lit else None
+        have = {stitch_family(i.kind) for i in cand}
+        return any(n not in have and (worked is None or n in worked) for n in named)
 
     @abstractmethod
     def stitches(self) -> list[str]:

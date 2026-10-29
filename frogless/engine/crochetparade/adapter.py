@@ -12,6 +12,7 @@ from ..base import (
     CheckResult,
     Engine,
     RowInfo,
+    RowItem,
     StitchInfo,
     TranslateLine,
     TranslateResult,
@@ -80,6 +81,9 @@ class CrochetEngine(Engine):
     def resolve(self, code: str) -> str:
         return resolve_spaces(code)
 
+    def row_items(self, code: str) -> list[RowItem] | None:
+        return _row_items(code)
+
     # ---- translate ----
     def translate(self, text: str) -> TranslateResult:
         _add_python_path(self.repo)
@@ -142,6 +146,32 @@ class CrochetEngine(Engine):
 
     def notation_guide(self) -> str:
         return NOTATION_GUIDE.read_text(encoding="utf-8")
+
+
+# One stitch or chain of a row's code, with the number written before it ("7dc", "2ch.A", "sc2inc@sp").
+_ITEM = re.compile(
+    r"(?P<repeat>\d+)\*\[|(?P<open>\[)|(?P<close>\])"
+    r"|(?<![A-Za-z0-9_.@])(?P<count>\d*)(?P<kind>(?:fp|bp)?(?:ss|sc|hdc|dc|dtr|ttr|trtr|tr|ch|sk)"
+    r"(?:[bf]l)?(?:\d+[a-z]*)?)(?![A-Za-z_])")
+
+
+def _row_items(code: str) -> list[RowItem]:
+    """The items of a row's code in order. `N*[...]` repeats multiply `times`; labels and @ places are skipped."""
+    items, repeats = [], []
+    for m in _ITEM.finditer(code):
+        if m["repeat"]:
+            repeats.append(int(m["repeat"]))
+        elif m["open"]:
+            repeats.append(1)  # an @[...] place list
+        elif m["close"]:
+            if repeats:
+                repeats.pop()
+        else:
+            times = 1
+            for r in repeats:
+                times *= r
+            items.append(RowItem(m["kind"], int(m["count"] or 1), times))
+    return items
 
 
 ROW_SOURCE = re.compile(r"^row\b", re.IGNORECASE)

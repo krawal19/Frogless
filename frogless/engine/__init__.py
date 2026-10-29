@@ -8,10 +8,13 @@ from .base import (
     CheckError,
     CheckResult,
     Engine,
+    ReadingDiff,
     RowInfo,
+    RowItem,
     StitchInfo,
     TranslateLine,
     TranslateResult,
+    stitch_family,
 )
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -21,11 +24,14 @@ __all__ = [
     "CheckError",
     "CheckResult",
     "Engine",
+    "ReadingDiff",
     "RowInfo",
+    "RowItem",
     "StitchInfo",
     "TranslateLine",
     "TranslateResult",
     "get_engine",
+    "stitch_family",
 ]
 
 

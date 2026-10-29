@@ -1,12 +1,14 @@
 """Export every synthetic test case with Frogless's full answer, for a crocheter to review.
 
 Run from the repo root:
-    python -m scripts.review_export [--max-cost USD] [--out FILE]
+    python -m scripts.review_export [--review] [--max-cost USD] [--out FILE]
 
 For each case: the pattern text, what we expected (worked out by arithmetic), what Frogless
 said, and row by row: who translated it (rules or model), the code, the code read back as
 English, the stated and computed counts, and the faithfulness checker's note. Model replies
-are cached on disk, so a rerun costs nothing. Writes logs/review/review.json by default.
+are cached on disk, so a rerun costs nothing.
+--review turns the Alice-and-Bob review on (default off, as before) and records, per case, whether it ran, its outcome
+and the suggested fix lines. Writes logs/review/review.json by default.
 """
 
 import argparse
@@ -18,14 +20,14 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from frogless.engine import get_engine
 from frogless.pipeline.check import check_pattern
-from frogless.pipeline.messages import user_message
+from frogless.pipeline.messages import fix_lines, shape_lines, user_message
 from frogless.pipeline.verdict import READINGS
 from frogless.testset.generators import ROOT, base_cases, load_config
 from frogless.testset.inject import injected_cases
 
 
-def export_case(engine, case, use_model):
-    report = check_pattern(case["english"], engine=engine, use_model=use_model, review=False)
+def export_case(engine, case, use_model, review=False):
+    report = check_pattern(case["english"], engine=engine, use_model=use_model, review=review)
     v = report.verdict
     written = [r for r in report.rows if not r.synthetic]
     # Same numbering as the verdict: a foundation chain is row 0, a magic-ring round starts at 1.
@@ -46,7 +48,11 @@ def export_case(engine, case, use_model):
         "known_gap": case["known_gap"], "input": case["english"],
         "expected": case["expected"],
         "output": {"kind": v.kind, "row": v.row, "message": user_message(report),
-                   "reading": v.reading, "interpreted": [i.__dict__ for i in v.interpreted]},
+                   "reading": v.reading, "interpreted": [i.__dict__ for i in v.interpreted],
+                   "fix_lines": fix_lines(report), "shape": shape_lines(report)},
+        "review": ({"ran": True, "outcome": report.review.outcome, "attempts": report.review.attempts,
+                    "alice": report.review.alice, "bob": report.review.bob}
+                   if report.review else {"ran": False}),
         "rows": rows, "cost_usd": report.cost_usd,
     }
 
@@ -54,6 +60,7 @@ def export_case(engine, case, use_model):
 def main():
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--max-cost", type=float, default=2.0, help="stop using the model after this many USD")
+    parser.add_argument("--review", action="store_true", help="run the Alice-and-Bob review (more model calls)")
     parser.add_argument("--out", type=Path, default=ROOT / "logs" / "review" / "review.json")
     args = parser.parse_args()
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -63,14 +70,15 @@ def main():
     cases, spent = [], 0.0
     for case in bases + injected_cases(cfg, bases):
         use_model = spent < args.max_cost
-        out = export_case(engine, case, use_model)
+        out = export_case(engine, case, use_model, args.review)
         out["model_used"] = use_model
         spent += out["cost_usd"]
         cases.append(out)
-        print(f"{case['id']:<44} {out['output']['kind']:<17} ${spent:.2f}")
+        print(f"{case['id']:<44} {out['output']['kind']:<17} review={out['review'].get('outcome', '-'):<20} ${spent:.2f}", flush=True)
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(json.dumps({"readings": list(READINGS), "cases": cases}, indent=1), encoding="utf-8")
-    print(f"{len(cases)} cases, ${spent:.2f} spent -> {args.out}")
+    ran = sum(1 for c in cases if c["review"]["ran"])
+    print(f"{len(cases)} cases, {ran} with the review run, ${spent:.2f} spent -> {args.out}")
 
 
 if __name__ == "__main__":

@@ -10,7 +10,7 @@ from .ledger import count_ledger
 from .reconcile import reconcile_counts
 from .report import PatternReport
 from .review import review_report
-from .shape import check_shape, meant_flat, starts_from_ring
+from .shape import POLYGON_KINDS, check_shape, meant_flat, starts_from_ring
 from .translate import rule_rows, translate_flagged
 from .verdict import decide_verdict
 
@@ -55,6 +55,10 @@ def check_pattern(text: str, *, engine: Engine | None = None, use_model: bool = 
         report.cost_usd += review_report(engine, text, report)
     if report.check:  # hints about the finished piece; they never change the verdict
         report.shape = check_shape(report.check.rows, from_ring=starts_from_ring(text), flat=meant_flat(text))
+        v = report.verdict
+        if v and v.kind == "breaks" and v.row is not None:  # corners of a round that breaks (or after it) are not to be trusted
+            report.shape = [f for f in report.shape
+                            if not (f.kind in POLYGON_KINDS and f.row is not None and f.row >= v.row)]
     return report
 
 

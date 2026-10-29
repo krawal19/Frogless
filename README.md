@@ -1,3 +1,10 @@
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="frogless/web/static/img/logo-dark@2x.png">
+    <img src="frogless/web/static/img/logo-light@2x.png" alt="Frogless" height="80">
+  </picture>
+</p>
+
 # Frogless
 
 Paste any crochet pattern. Know if it works before you pick up your hook: where it breaks, how to fix it, and what it will really make.

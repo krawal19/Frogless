@@ -82,7 +82,7 @@ class Verdict:
     readings: list[str] = field(default_factory=list)  # for "ambiguous": the readings that fit
     alternatives: list[Alternative] = field(default_factory=list)  # for "ambiguous": each reading's outcome
     reading: str = ""  # TURN_COUNTS when only that reading fit the stated counts (a fallback); "" otherwise
-    chains_counted: bool = False  # some bare count fits only with the chain spaces counted (a fallback)
+    chains_left_out: bool = False  # some bare count fits only with all chains left out (a fallback)
     interpreted: list[Interpreted] = field(default_factory=list)  # rows the code had to read one way
     rows: list[int] = field(default_factory=list)  # for "works_unverified": rows the model wrote and nothing confirmed
     counted: list[int] = field(default_factory=list)  # for "works_counts_only": rows read by AI and checked by count only

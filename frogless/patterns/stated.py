@@ -7,12 +7,19 @@ number, such as "(2 dc, ch 2, 2 dc) in next sp" or "ch 2 (counts as dc)", give N
 import re
 from dataclasses import dataclass
 
-# stitch words -> short name; "sts"/"stitches" mean "all stitches" and map to None
+# stitch words -> short name; "sts"/"stitches" mean "all stitches" and map to None.
+# "pc", "bobble" and "puff" are special stitches: "(6 popcorns)" counts only those.
 _TYPES = {
     "sc": "sc", "hdc": "hdc", "dc": "dc", "tr": "tr", "trc": "tr", "dtr": "dtr", "ch": "ch", "chs": "ch",
     "single crochet": "sc", "single crochets": "sc", "half double crochet": "hdc",
     "half double crochets": "hdc", "double crochet": "dc", "double crochets": "dc",
     "treble crochet": "tr", "treble crochets": "tr", "chain": "ch", "chains": "ch",
+    "popcorn": "pc", "popcorns": "pc", "pc": "pc", "pcs": "pc", "popcorn st": "pc", "popcorn sts": "pc",
+    "popcorn stitch": "pc", "popcorn stitches": "pc",
+    "bobble": "bobble", "bobbles": "bobble", "bobble st": "bobble", "bobble sts": "bobble",
+    "bobble stitch": "bobble", "bobble stitches": "bobble",
+    "puff": "puff", "puffs": "puff", "puff st": "puff", "puff sts": "puff",
+    "puff stitch": "puff", "puff stitches": "puff",
     "st": None, "sts": None, "stitch": None, "stitches": None,
 }
 _WORDS = "|".join(sorted(_TYPES, key=len, reverse=True))

@@ -163,13 +163,13 @@ def fix_lines(report: PatternReport) -> list[str]:
 
 
 TURN_NOTE = "Works only if the turning chain counts as a stitch."
-CHAINS_NOTE = "The counts only work if the chain spaces are counted."
+CHAINS_NOTE = "The counts only work if the chains are left out."
 
 
 def _notes(v: Verdict) -> list[str]:
     """The conventions a passing pattern leans on that the pattern itself never states."""
     notes = [TURN_NOTE] if v.reading == TURN_COUNTS else []
-    return notes + ([CHAINS_NOTE] if v.chains_counted else [])
+    return notes + ([CHAINS_NOTE] if v.chains_left_out else [])
 
 
 def _ambiguous(v: Verdict, word: str) -> str:

@@ -22,8 +22,9 @@ Counting conventions (the unwritten ones a crocheter assumes; the pattern's own 
 - a turning chain does NOT count as a stitch, whatever the stitch height. It counts only when the
   pattern says so ("ch 3 (counts as first dc)"), or, as a fallback, when the stated counts fit only
   that reading; the verdict then says it works only if the turning chain counts;
-- a bare stated count ("(24)") leaves chain spaces out. If a row's count fits only with the chains
-  counted the pattern still passes, with a note, never silently.
+- a bare stated count ("(24)") is the stitches plus every chain except the turning chain: corner chains,
+  mesh chains and chains inside a row count. If a row's count fits only with all chains left out the pattern
+  still passes, with a note, never silently.
 When no pattern text settles the turning chain, the two readings are tried and the one that fits
 more of the stated counts wins, "not counted" on a tie. If they fit equally often but disagree
 about where the pattern breaks, the verdict is "ambiguous" and lists both readings.
@@ -60,7 +61,7 @@ class _Outcome:
     computed: dict[int, int]
     said: int | None = None  # the stated count at the breaking row, when a stated count is what failed
     made: int | None = None  # the count the instructions make there
-    chain_rows: list[int] = field(default_factory=list)  # rows whose bare count fits only with chain spaces counted
+    chain_rows: list[int] = field(default_factory=list)  # rows whose bare count fits only with all chains left out
 
 
 # ---- mapping rows to engine rows ----
@@ -138,8 +139,8 @@ def _flat(row: _Row) -> bool:
 
 
 def _counts(row: _Row, reading: str, foundation: int | None, said: bool) -> list[int]:
-    """Counts this row's stated total may mean, most likely first. Chain spaces are left out of a
-    bare count; counting them is the fallback, and so comes second."""
+    """Counts this row's stated total may mean, most likely first. A bare count includes the chains
+    except the turning chain; leaving all chains out is the fallback, and so comes second."""
     info, stated = row.info, row.stated
     kind = stated.stitch if stated else None
     counts = row_counts(info, kind)
@@ -147,7 +148,7 @@ def _counts(row: _Row, reading: str, foundation: int | None, said: bool) -> list
     # its corner chains are not a turning chain, so only a turned row may still add the counted chain.
     if (reading == TURN_COUNTS and (_flat(row) or not said) and _turned_tall(info, foundation)
             and (kind is None or kind.startswith(_TALL))):
-        return [counts[0] + 1]  # the turning chain is the row's first stitch; chain spaces are not added
+        return [counts[0] + 1]  # the turning chain is the row's first stitch; other chains already count
     return counts
 
 
@@ -171,7 +172,7 @@ def _evaluate(reading: str, rows: list[_Row], result: CheckResult | None, error_
             fits += 1
             computed[row.number] = row.stated.count
             if row.stated.count != counts[0]:
-                chain_rows.append(row.number)  # fits only with the chain spaces counted
+                chain_rows.append(row.number)  # fits only with all chains left out
         elif misfit is None and (limit is None or row.number < limit):
             misfit = (row, counts[0])
     engine_ok = error_row is None or (limit is not None and error_row >= limit)
@@ -265,19 +266,19 @@ def decide_verdict(engine: Engine, text: str, rows: list[RowResult],
                        rows=[n for n in unverified if n < unread[0].number]), stated, best.computed
 
     interpreted = [Interpreted(r.number, r.result.source, r.result.reading, r.result.why)
-                   for r in mapped if r.result.reading and r.result.faithful]
+                   for r in mapped if r.result.reading and r.result.faithful is not False and r.result.code]
     if unverified:
         what = (f"stitch counts check out{note}, but {_names(unverified)} "
                 f"{'was' if len(unverified) == 1 else 'were'} translated by the model and not confirmed")
         return (Verdict("works_unverified", what, rows=unverified, reading=reading, interpreted=interpreted,
-                        chains_counted=chains), stated, best.computed)
+                        chains_left_out=chains), stated, best.computed)
     if counted:
         numbers = [r.number for r in counted if r.result.ledger_uses or r.result.ledger_makes]
         what = f"stitch counts check out{note}; {_names(numbers)} read by AI and checked by count only"
         return (Verdict("works_counts_only", what, counted=numbers, rows=unverified, reading=reading,
-                        interpreted=interpreted, chains_counted=chains), stated, best.computed)
+                        interpreted=interpreted, chains_left_out=chains), stated, best.computed)
     return (Verdict("works", f"stitch counts and structure check out{note}", reading=reading,
-                    interpreted=interpreted, chains_counted=chains), stated, best.computed)
+                    interpreted=interpreted, chains_left_out=chains), stated, best.computed)
 
 
 @dataclass

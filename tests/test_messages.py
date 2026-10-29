@@ -99,12 +99,12 @@ def test_turning_chain_fallback_is_flagged_not_a_silent_pass():
     assert msg.endswith("⚠ Works only if the turning chain counts as a stitch.")
 
 
-def test_chain_space_fallback_is_flagged():
-    assert user_message(report(Verdict("works", "ok", chains_counted=True))) == (
-        "⚠ The counts only work if the chain spaces are counted.")
-    both = Verdict("works", "ok", reading=TURN_COUNTS, chains_counted=True)
+def test_chains_left_out_fallback_is_flagged():
+    assert user_message(report(Verdict("works", "ok", chains_left_out=True))) == (
+        "⚠ The counts only work if the chains are left out.")
+    both = Verdict("works", "ok", reading=TURN_COUNTS, chains_left_out=True)
     assert user_message(report(both)) == ("⚠ Works only if the turning chain counts as a stitch. "
-                                          "The counts only work if the chain spaces are counted.")
-    interp = Verdict("works", "ok", chains_counted=True,
+                                          "The counts only work if the chains are left out.")
+    interp = Verdict("works", "ok", chains_left_out=True,
                      interpreted=[Interpreted(2, "Round 2: sc in the gap (12)", "sc in each of the 12 sts", "no gap")])
-    assert user_message(report(interp)).endswith("⚠ The counts only work if the chain spaces are counted.")
+    assert user_message(report(interp)).endswith("⚠ The counts only work if the chains are left out.")

@@ -9,8 +9,9 @@ Plain code, no model calls. It also flags a line whose code leaves out an item t
 
 How the count is computed: check the code of every still-parsed line up to and
 including this one and take the last row's stitch count. A stated stitch type ("24 dc")
-counts only that type. A bare count ("(24)") matches either all stitches without chains
-or with them, since designers differ on counting chain spaces. Multi-size counts are skipped.
+counts only that type. A bare count ("(24)") is the stitches plus every chain except the turning chain
+at the start of the row (corner and mesh chains count); it also matches the count with all chains
+left out, since designers differ. Multi-size counts are skipped.
 
 After a flagged line (unparsed by the translator, or flagged here) the code has a hole:
 the flagged line contributes nothing, so later checks may fail or count wrongly through
@@ -28,21 +29,49 @@ from ..patterns.stated import stated_count
 from .omissions import left_out_item
 
 
+def _is_type(name: str, stitch: str) -> bool:
+    """Whether the engine's stitch name is the stated type. The engine names special stitches its own way
+    ("dc5pc", "a dc bobble of 3 stitches", "an hdc puff of 3 stitches"), so those are found by their word."""
+    if stitch == "pc":
+        return name.endswith("pc")
+    if stitch in ("bobble", "puff"):
+        return stitch in name
+    return name.startswith(stitch)
+
+
+def leading_chains(row) -> int:
+    """The length of the turning chain at the start of a row or round: the run of chains before its first
+    other stitch (slip stitches before it, such as a join into a corner space, are passed over). Without the
+    stitch graph the chains of the row cannot be placed, so all of them are taken as the turning chain."""
+    stitches = sorted(getattr(row, "stitches", None) or [], key=lambda s: s.position)
+    if not stitches:
+        return row.stitch_types.get("ch", 0)
+    run = 0
+    for s in stitches:
+        if s.kind.startswith("ss") and run == 0:
+            continue
+        if s.kind != "ch":
+            break
+        run += 1
+    return run
+
+
 def row_counts(row, stitch: str | None) -> list[int]:
     """Counts a stated total may mean for a checked row, most likely first.
 
-    A typed count ("24 dc") is only that type. A bare count ("(24)") is all stitches;
-    designers differ on whether chains (corner spaces) are included, so both readings
-    are accepted. Slip stitches (joins) are never counted, unless the row is only those.
+    A typed count ("24 dc") is only that type. A bare count ("(24)") is the stitches plus every chain
+    except the turning chain (the chain that starts the row or round): corner chains, mesh chains and
+    chains inside the row count. Designers differ, so the fallback, second, leaves all chains out.
+    Slip stitches (joins) are never counted, unless the row is only those.
     """
     types = row.stitch_types
     if stitch is not None:  # "sc" also covers variants the engine names e.g. sc2inc, sc2tog
-        return [sum(n for name, n in types.items() if name.startswith(stitch))]
+        return [sum(n for name, n in types.items() if _is_type(name, stitch))]
     if set(types) <= {"ch"} or set(types) <= {"ss"}:
         return [row.stitch_count]
     slips = sum(n for name, n in types.items() if name.startswith("ss"))
     total = row.stitch_count - slips
-    return [total - types.get("ch", 0), total]
+    return [total - min(leading_chains(row), types.get("ch", 0)), total - types.get("ch", 0)]
 
 
 def gate_translation(engine: Engine, result: TranslateResult, original_text: str = "") -> TranslateResult:
@@ -80,8 +109,8 @@ def gate_translation(engine: Engine, result: TranslateResult, original_text: str
         elif check.rows:
             made = row_counts(check.rows[-1], stated.stitch)
             if stated.count not in made:
-                with_ch = f" ({made[1]} counting chains)" if len(made) > 1 and made[1] != made[0] else ""
-                reason = f"stated count {stated.count}, translation makes {made[0]}{with_ch}"
+                no_ch = f" ({made[1]} with all chains left out)" if len(made) > 1 and made[1] != made[0] else ""
+                reason = f"stated count {stated.count}, translation makes {made[0]}{no_ch}"
         if reason:
             hole = True
             lines.append(replace(line, code="", parsed=False, reason=reason))

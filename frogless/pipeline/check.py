@@ -1,8 +1,10 @@
 """check_pattern(): the whole Frogless pipeline for one written pattern."""
 
+import re
 from dataclasses import replace
 
 from ..engine import Engine, get_engine
+from ..patterns.repeats import RepeatNote, merge_repeat_chains
 from ..patterns.sizes import split_sizes
 from ..patterns.terms import Terms, detect_terms, to_us
 from .faithful import check_faithfulness
@@ -30,6 +32,7 @@ def check_pattern(text: str, *, engine: Engine | None = None, use_model: bool = 
     found, note = _read_terms(text, terms)
     if found.kind == "UK":
         text = to_us(text)
+    text, repeat_notes = merge_repeat_chains(text)  # a chain written twice across a repeat's end is one chain
     engine = engine or get_engine()
     rows, cost = rule_rows(engine, text), 0.0
     if use_model:
@@ -42,6 +45,7 @@ def check_pattern(text: str, *, engine: Engine | None = None, use_model: bool = 
             rows, spent = reconcile_counts(engine, text, rows)
             cost += spent
     rows = [replace(r, synthetic=True, code="") if engine.is_marker(r.source) else r for r in rows]
+    rows = _with_repeat_notes(rows, repeat_notes)
     if use_model and ledger:
         rows, spent = count_ledger(engine, text, rows)
         cost += spent
@@ -60,6 +64,31 @@ def check_pattern(text: str, *, engine: Engine | None = None, use_model: bool = 
             report.shape = [f for f in report.shape
                             if not (f.kind in POLYGON_KINDS and f.row is not None and f.row >= v.row)]
     return report
+
+
+_LABEL = re.compile(r"^\s*(?:rows?|rnds?|rounds?|r)\s*[\d\s\-–,&and]+:\s*", re.IGNORECASE)
+
+
+def _plain(text: str) -> str:
+    return re.sub(r"[^a-z0-9]", "", text.lower())
+
+
+def _key(line: str) -> str:
+    """Part of a line, letters and digits only, past its label. The translator rewrites the labels and the
+    way repeats are multiplied ("x3" becomes "3 times"), but not the words before that."""
+    return _plain(_LABEL.sub("", line, count=1))
+
+
+def _with_repeat_notes(rows, notes: list[RepeatNote]):
+    """Show the repeat-boundary merges as interpreted readings on the rows they changed."""
+    for note in notes:
+        wanted = _key(note.start)
+        for i, row in enumerate(rows):
+            if row.synthetic or not row.code or not wanted or wanted not in _plain(row.source):
+                continue
+            reading = f"{row.reading}; {note.reading}" if row.reading else note.reading
+            rows[i] = replace(row, reading=reading, note=f"read as {reading}" + (f" ({row.why})" if row.why else ""))
+    return rows
 
 
 def check_pattern_sizes(text: str, **kw) -> list[tuple[str, PatternReport]]:

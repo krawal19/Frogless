@@ -4,7 +4,7 @@ Most tests hand the verdict engine-neutral check results (RowInfo lists), so the
 depend on any engine syntax; a few run real encoded patterns through the engine.
 """
 
-from frogless.engine import CheckError, CheckResult, RowInfo, get_engine
+from frogless.engine import CheckError, CheckResult, RowInfo, StitchInfo, get_engine
 from frogless.pipeline.report import RowResult
 from frogless.pipeline.verdict import PLAIN, TURN_COUNTS, decide_verdict
 from frogless.testset.generators import base_cases, load_config
@@ -17,6 +17,14 @@ ENGINE = get_engine()
 
 def info(index, count, **types):
     return RowInfo(index, count, types or {"sc": count})
+
+
+def graph_row(index, kinds):
+    """A row with its stitch graph: `kinds` are the row's stitches in working order ("ch" first = turning chain)."""
+    types = {}
+    for k in kinds:
+        types[k] = types.get(k, 0) + 1
+    return RowInfo(index, len(kinds), types, stitches=[StitchInfo(i, k) for i, k in enumerate(kinds)])
 
 
 def run(lines, infos, error=None, **row_fields):
@@ -84,18 +92,44 @@ def test_multi_size_count_is_not_checked():
 
 
 # ---- bare counts and chains ----
-def test_bare_count_may_include_chains_as_a_fallback():
-    lines = [("Ch 11.", True), ("Row 1: sc across, ch 1, turn (10)", True), ("Row 2: sc across (11)", True)]
-    infos = [info(0, 11, ch=11), info(1, 10), info(2, 11, ch=1, sc=10)]
-    v, stated, computed = run(lines, infos)
-    assert v.kind == "works" and v.chains_counted
-    assert stated == {1: 10, 2: 11} and computed == {1: 10, 2: 11}  # row 0 is the foundation chain
+MESH = ["ch"] + ["sc", "ch"] * 4 + ["sc"]  # a turning chain, then 5 sc with a ch-1 space between each: 5 sc, 4 chains
+
+
+def mesh_rows(second, third=None):
+    lines = [("Ch 11.", True), ("Row 1: sc across (10)", True), (f"Row 2: ch 1, sc, [ch 1, sk 1, sc] x4 ({second})", True)]
+    infos = [info(0, 11, ch=11), info(1, 10), graph_row(2, MESH)]
+    return lines, infos
+
+
+def test_bare_count_counts_mesh_chains_but_not_the_turning_chain():
+    v, stated, computed = run(*mesh_rows(9))  # 5 sc + 4 mesh chains; the turning chain is left out
+    assert v.kind == "works" and not v.chains_left_out
+    assert stated == {1: 10, 2: 9} and computed == {1: 10, 2: 9}  # row 0 is the foundation chain
+    v, _, _ = run(*mesh_rows(10))  # ... which would be 10 with the turning chain counted
+    assert (v.kind, v.row) == ("breaks", 2)
+    assert "pattern says 10, the instructions make 9" in v.message
+
+
+def test_corner_chains_in_a_round_count_but_the_starting_chain_does_not():
+    lines = [("Round 1: 4 sc in ring (4)", True), ("Round 2: ch 2, (sc, ch 2, sc) in each st around (12)", True)]
+    kinds = ["ch", "ch"] + ["sc", "ch", "ch", "sc"] * 2  # starting ch 2, then two corners of sc, ch 2, sc
+    v, _, computed = run(lines, [info(1, 4), graph_row(2, kinds)])
+    assert v.kind == "breaks" and "the instructions make 8" in v.message  # 4 sc + 4 corner chains = 8
+    lines[1] = (lines[1][0].replace("(12)", "(8)"), True)
+    v, _, computed = run(lines, [info(1, 4), graph_row(2, kinds)])
+    assert v.kind == "works" and computed[2] == 8
+
+
+def test_a_slip_stitch_join_before_the_starting_chain_is_passed_over():
+    lines = [("Round 1: 4 sc in ring (4)", True), ("Round 2: sl st in first sc, ch 2, sc around (4)", True)]
+    v, _, _ = run(lines, [info(1, 4), graph_row(2, ["ss", "ch", "ch", "sc", "sc", "sc", "sc"])])
+    assert v.kind == "works"
 
 
 def test_bare_count_may_leave_chains_out():
     lines = [("Ch 11.", True), ("Row 1: sc across (10)", True), ("Row 2: sc across (10)", True)]
     v, _, computed = run(lines, [info(0, 11, ch=11), info(1, 10), info(2, 11, ch=1, sc=10)])
-    assert v.kind == "works" and computed[2] == 10 and not v.chains_counted
+    assert v.kind == "works" and computed[2] == 10 and not v.chains_left_out
 
 
 def test_typed_count_counts_that_stitch_only():
@@ -182,16 +216,22 @@ def test_a_single_turned_row_follows_the_reading_that_fits():
 
 
 # ---- bare counts leave chain spaces out; counting them is a flagged fallback ----
-def test_bare_count_that_fits_only_with_chains_passes_with_a_note():
-    v, _, _ = run(*chain_rows(10))
-    assert v.kind == "works" and v.chains_counted
-    v, _, _ = run(*chain_rows(9))  # without the chain
-    assert v.kind == "works" and not v.chains_counted
+def test_bare_count_that_fits_only_with_all_chains_left_out_passes_with_a_note():
+    v, _, computed = run(*mesh_rows(5))  # the 5 sc only
+    assert v.kind == "works" and v.chains_left_out
+    assert computed[2] == 5
+    v, _, _ = run(*mesh_rows(9))  # the default: mesh chains counted
+    assert v.kind == "works" and not v.chains_left_out
 
 
-def chain_rows(second):
-    lines = [("Ch 11.", True), ("Row 1: sc across (10)", True), (f"Row 2: sc, ch 1, turn ({second})", True)]
-    return lines, [info(0, 11, ch=11), info(1, 10), info(2, 10, ch=1, sc=9)]
+def test_typed_count_is_unchanged_by_chains():
+    lines, infos = mesh_rows(5)
+    lines[2] = (lines[2][0].replace("(5)", "(5 sc)"), True)
+    v, _, _ = run(lines, infos)
+    assert v.kind == "works" and not v.chains_left_out
+    lines[2] = (lines[2][0].replace("(5 sc)", "(9 sc)"), True)
+    v, _, _ = run(lines, infos)
+    assert (v.kind, v.row) == ("breaks", 2)
 
 
 # ---- unreadable versus breaks before the unreadable row ----

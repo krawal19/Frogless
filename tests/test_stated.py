@@ -97,23 +97,45 @@ def test_gate_leaves_unparsed_and_synthetic_lines_alone():
     assert out.lines == lines
 
 
-def test_bare_count_may_include_chains_but_typed_count_may_not():
-    from types import SimpleNamespace
+def _graph_row(kinds):
+    from frogless.engine import RowInfo, StitchInfo
 
+    types = {}
+    for k in kinds:
+        types[k] = types.get(k, 0) + 1
+    return RowInfo(1, len(kinds), types, stitches=[StitchInfo(i, k) for i, k in enumerate(kinds)])
+
+
+def test_bare_count_counts_every_chain_but_the_turning_chain():
     from frogless.pipeline.gate import row_counts
 
-    granny = SimpleNamespace(stitch_count=20, stitch_types={"dc": 12, "ch": 8})
-    assert row_counts(granny, None) == [12, 20]  # "(12)" or "(20)" both fit
-    assert row_counts(granny, "dc") == [12]  # "(12 dc)" counts dc only
+    granny = _graph_row(["ch", "ch", "ch"] + ["dc", "dc", "ch", "ch", "dc", "dc"] * 2)  # ch 3 turning + 2 corners
+    assert row_counts(granny, None) == [12, 8]  # 8 dc + 4 corner chains; the fallback leaves all chains out
+    assert row_counts(granny, "dc") == [8]  # "(8 dc)" counts dc only
 
 
-def test_bare_count_leaves_chains_out_first_and_counting_them_is_the_fallback():
+def test_all_chains_left_out_is_the_fallback_reading():
+    from frogless.pipeline.gate import row_counts
+
+    row = _graph_row(["ch"] + ["sc", "ch"] * 4 + ["sc"])  # turning chain, 5 sc, 4 mesh chains
+    assert row_counts(row, None) == [9, 5]  # mesh chains count; leaving every chain out is second
+    assert row_counts(row, "sc") == [5]
+
+
+def test_without_the_stitch_graph_chains_are_taken_as_the_turning_chain():
     from types import SimpleNamespace
 
     from frogless.pipeline.gate import row_counts
 
     row = SimpleNamespace(stitch_count=15, stitch_types={"dc": 12, "ch": 3})
-    assert row_counts(row, None)[0] == 12  # the default reading; 15 is the fallback, second
+    assert row_counts(row, None) == [12, 12]
+
+
+def test_a_join_before_the_turning_chain_is_passed_over():
+    from frogless.pipeline.gate import leading_chains
+
+    assert leading_chains(_graph_row(["ss", "ch", "ch", "dc"])) == 2
+    assert leading_chains(_graph_row(["dc", "ch", "dc"])) == 0
 
 
 def test_what_a_line_says_about_its_turning_chain():
@@ -126,3 +148,24 @@ def test_what_a_line_says_about_its_turning_chain():
     assert says("Row 2: ch 3 doesn't count as dc, dc across") is False
     assert says("Row 2: ch 3, dc across") is None
     assert says("Rnd 3: 6 sc counts as one repeat") is None  # nothing about a chain
+
+
+def test_counts_of_special_stitches_are_typed_counts():
+    for text, kind in [("Rnd 3: ... (6 popcorns)", "pc"), ("Rnd 3: ... (12 pc)", "pc"), ("= 5 popcorn sts", "pc"),
+                       ("Rnd 3: ... (8 bobbles)", "bobble"), ("Rnd 3: ... [8bobble sts]", "bobble"),
+                       ("Rnd 3: ... (6 puff sts)", "puff"), ("Rnd 3: ... (6 puffs)", "puff")]:
+        found = stated_count(text)
+        assert found is not None and found.stitch == kind, text
+    assert stated_count("Rnd 3: ... (6 popcorns)").count == 6
+    assert stated_count("Rnd 3: ... (12 sts)").stitch is None  # all stitches, not a special one
+
+
+def test_a_special_stitch_count_counts_only_that_stitch():
+    from frogless.engine import RowInfo
+    from frogless.pipeline.gate import row_counts
+
+    row = RowInfo(2, 18, {"dc5pc": 6, "dc": 6, "a dc bobble of 3 stitches": 4, "an hdc puff of 3 stitches": 2})
+    assert row_counts(row, "pc") == [6]
+    assert row_counts(row, "bobble") == [4]
+    assert row_counts(row, "puff") == [2]
+    assert row_counts(row, "dc") == [12]  # as before: "dc" covers the dc variants the engine names

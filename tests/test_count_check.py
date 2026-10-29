@@ -251,3 +251,28 @@ def test_only_the_exact_turning_chain_height_is_not_counted_in_a_foundation_row(
     assert counts("94ch\n3sk,sc,45*[ch,sk,sc]") == [92, 46]
     assert counts("94ch\n5sk,sc,44*[ch,sk,sc]")[0] == 91  # 4 extra skipped chains: 2 more
     assert row_counts(engine.check("94ch\n3sk,sc,45*[ch,sk,sc]").rows[1], "sc") == [46]  # a typed count is the stitch only
+
+
+def test_extra_chains_at_the_start_of_any_row_form_a_space_and_count():
+    from frogless.engine import get_engine
+    from frogless.pipeline.gate import row_counts
+
+    engine = get_engine()
+    foundation = "94ch\n3sk,sc,45*[ch,sk,sc]\n"
+
+    def counts(row, stitch=None):
+        return row_counts(engine.check(foundation + row).rows[2], stitch)
+
+    # Ch 2, sc in first ch-1 sp, [ch 1, skip 1, sc in next ch-1 sp] across: the last sc goes into the ch-2's second chain
+    assert counts("2ch,sc,45*[ch,sk,sc]")[0] == 92
+    assert counts("2ch,sc,45*[ch,sk,sc]", "sc") == [46]  # a typed count is still the stitch only
+    # the exact turning-chain heights are unchanged
+    assert counts("ch,sc,45*[ch,sk,sc]")[0] == 91  # ch 1, sc across
+    assert counts("ch,sc,45*[ch,sk,sc]", None)[1] == 46
+    dc = engine.check("20ch\n3sk,17dc\n3ch,17dc").rows[2]
+    assert row_counts(dc, None)[0] == 17  # ch 3, dc across
+    dc2 = engine.check("20ch\n3sk,17dc\n2ch,17dc").rows[2]
+    assert row_counts(dc2, None)[0] == 17  # ch 2 also a dc turning chain
+    hdc = engine.check("20ch\n2sk,18hdc\n2ch,18hdc").rows[2]
+    assert row_counts(hdc, None)[0] == 18  # ch 2, hdc across
+    assert row_counts(engine.check("20ch\n3sk,17dc\n4ch,17dc").rows[2], None)[0] == 18  # ch 4, dc: one extra chain

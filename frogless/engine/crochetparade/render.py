@@ -17,6 +17,10 @@ CHROMIUM_ARGS = ["--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--ig
 VIEWPORT = {"width": 1500, "height": 1000}
 TIMEOUT_S = 90  # per pattern: layout + 3D calculation can be slow for big patterns
 CHART_PX = 900  # chart SVG resolution (its "height" field)
+# The three files the page's "Save Standard Crochet Chart as SVG" downloads, by the name it gives them.
+_SYMBOL_STYLE = "svg path{stroke:#222 !important;stroke-width:2.2px !important}"
+_CHART_FILES = {"crochet_symbols.svg": "symbols", "graph.svg": "connectivity",
+                "graph_with_std_crochet_symbols.svg": "overlay"}
 
 # Camera views, in the model's principal axes: n = the thinnest direction (the normal,
 # if the piece is flat), e1 = the longest direction.
@@ -208,7 +212,8 @@ class Renderer:
         pos, up = _camera_for("top", axes, radius)
         page.evaluate(_SET_CAMERA_JS, [pos, up, [0, 0, 0]])
         try:
-            result["chart_2d"] = self._chart(page, out_dir / f"{name}_chart.png")
+            charts = self._chart(page, out_dir, name)
+            result.update(charts_2d=charts, chart_2d=charts["symbols"])
         except Exception as e:
             result["chart_error"] = f"{type(e).__name__}: {str(e).splitlines()[0][:150]}"
 
@@ -226,21 +231,48 @@ class Renderer:
                 return points
             time.sleep(0.5)
 
-    def _chart(self, page, png_path):
-        """Use the page's own 'Save Standard Crochet Chart as SVG' and rasterise the SVG."""
+    def _chart(self, page, out_dir: Path, name: str) -> dict:
+        """Use the page's own 'Save Standard Crochet Chart as SVG', which downloads three SVG files.
+
+        The page names them graph.svg (the connectivity sketch: stitch ids joined by arrows),
+        graph_with_std_crochet_symbols.svg (the symbols drawn over that sketch) and crochet_symbols.svg
+        (the standard crochet symbol chart). Each is saved as <name>_<kind>.svg and rasterised to .png.
+        Returns {"symbols": png path, "connectivity": ..., "overlay": ..., "symbols_svg": svg path, ...}.
+        The PNG of the symbol chart is drawn with heavier dark lines than the page's hairlines so that it
+        reads in a still image; the saved SVG is the page's own.
+        """
+        downloads = []
+        page.on("download", lambda d: downloads.append(d))
         page.evaluate("saveSvg()")  # opens a small options form
         page.fill("#svgHeight", str(CHART_PX))
         page.check("#colorCheckbox")
-        with page.expect_download() as dl:
-            page.click("form button[type=submit]")
-        svg = Path(dl.value.path()).read_text(encoding="utf-8")
-        shot = self._browser.new_page(viewport={"width": CHART_PX + 40, "height": CHART_PX + 40})
+        page.click("form button[type=submit]")
+        deadline = time.time() + 30
+        while time.time() < deadline:  # wait for all three files, or for no more to arrive
+            if len(downloads) >= len(_CHART_FILES):
+                break
+            page.wait_for_timeout(250)
+        page.wait_for_timeout(250)
+        found = {}
+        for dl in downloads:
+            kind = _CHART_FILES.get(dl.suggested_filename)
+            if kind and kind not in found:
+                found[kind] = Path(dl.path()).read_text(encoding="utf-8")
+        if "symbols" not in found:
+            raise RuntimeError(f"the engine page gave no symbol chart (files: {[d.suggested_filename for d in downloads]})")
+        out = {}
+        shot = self._browser.new_page(viewport={"width": CHART_PX + 40, "height": CHART_PX + 40}, device_scale_factor=2)
         try:
-            shot.set_content(f'<body style="margin:20px;background:#fff">{svg}</body>')
-            shot.locator("svg").first.screenshot(path=str(png_path))
+            for kind, svg in found.items():
+                svg_path, png_path = out_dir / f"{name}_{kind}.svg", out_dir / f"{name}_{kind}.png"
+                svg_path.write_text(svg, encoding="utf-8")
+                style = f"<style>{_SYMBOL_STYLE}</style>" if kind == "symbols" else ""
+                shot.set_content(f'{style}<body style="margin:20px;background:#fff">{svg}</body>')
+                shot.locator("svg").first.screenshot(path=str(png_path))
+                out[kind], out[f"{kind}_svg"] = str(png_path), str(svg_path)
         finally:
             shot.close()
-        return str(png_path)
+        return out
 
 
 def render_many(repo, items, out_dir) -> list[dict]:

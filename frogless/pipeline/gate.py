@@ -56,30 +56,48 @@ def leading_chains(row) -> int:
     return run
 
 
-# Chains that are exactly the turning chain of a foundation row's first stitch: the first stitch goes into the
-# (min+1)th..(max+1)th chain from the hook. Any chains skipped beyond that are extra, not a turning chain.
+# Chains that are exactly the turning chain of a row's first stitch. In a foundation row the first stitch goes into
+# the (min+1)th..(max+1)th chain from the hook; in any other row the row starts with that many chains. Chains
+# beyond that height are extra, not a turning chain.
 _TURNING_HEIGHT = {"sc": (1, 1), "hdc": (2, 2), "dc": (2, 3), "tr": (4, 4), "dtr": (5, 5), "ttr": (6, 6)}
 
 
-def foundation_space(row) -> int:
-    """Chains a foundation row counts for the extra chains it skips before its first stitch.
-
-    Only the exact turning-chain height is the turning chain (sc 1, hdc 2, dc 2 or 3, tr 4). Chains skipped beyond
-    that form a space, and a space counts like the ch-1 gap of a mesh repeat ("ch 1, skip 1"): two skipped chains
-    count one chain. "Ch 94, sc in 4th ch from hook, [ch 1, skip 1 ch, sc in next ch] across": 3 skipped, 1 turning,
-    2 extra, so 1 more chain, 46 sc + 46 chains = 92. Rows that are not worked into a foundation chain have none.
-    """
-    if getattr(row, "index", 0) != 1:
-        return 0
+def _first_stitch_family(row) -> str | None:
+    """The family of the first stitch of a row that is not a chain or a slip stitch (None if it has none)."""
     for s in sorted(getattr(row, "stitches", None) or [], key=lambda s: s.position):
         family = stitch_family(s.kind)
-        if family in ("ch", "ss") or not s.into:
-            continue
-        if family not in _TURNING_HEIGHT or s.into[0][0] != 0:
-            return 0
-        extra = s.into[0][1] - _TURNING_HEIGHT[family][1]
-        return max(extra, 0) // 2
-    return 0
+        if family not in ("ch", "ss"):
+            return family
+    return None
+
+
+def foundation_space(row) -> int:
+    """Chains a row counts for the extra chains it has before its first stitch.
+
+    Only the exact turning-chain height is the turning chain (sc 1, hdc 2, dc 2 or 3, tr 4). Extra chains form a space.
+    In a foundation row they are chains skipped: a space counts like the ch-1 gap of a mesh repeat ("ch 1, skip 1"), so
+    two skipped chains count one chain. "Ch 94, sc in 4th ch from hook, [ch 1, skip 1 ch, sc in next ch] across": 3
+    skipped, 1 turning, 2 extra, so 1 more chain, 46 sc + 46 chains = 92.
+    In every other row they are chains made at its start, and each counts: "Ch 2, sc in first ch-1 sp, [ch 1, skip 1,
+    sc in next ch-1 sp] across" has a turning ch 1 and one extra chain, which the last sc is worked into (92, not 91).
+    """
+    if getattr(row, "index", 0) < 1:
+        return 0
+    stitches = sorted(getattr(row, "stitches", None) or [], key=lambda s: s.position)
+    if row.index == 1:
+        for s in stitches:
+            family = stitch_family(s.kind)
+            if family in ("ch", "ss") or not s.into:
+                continue
+            if s.into[0][0] == 0:  # worked into the foundation chain
+                if family not in _TURNING_HEIGHT:
+                    return 0
+                return max(s.into[0][1] - _TURNING_HEIGHT[family][1], 0) // 2
+            break
+    family = _first_stitch_family(row)
+    if family not in _TURNING_HEIGHT:
+        return 0
+    return max(leading_chains(row) - _TURNING_HEIGHT[family][1], 0)
 
 
 def row_counts(row, stitch: str | None) -> list[int]:
@@ -88,8 +106,9 @@ def row_counts(row, stitch: str | None) -> list[int]:
     A typed count ("24 dc") is only that type. A bare count ("(24)") is the stitches plus every chain
     except the turning chain (the chain that starts the row or round): corner chains, mesh chains and
     chains inside the row count. Designers differ, so the fallback, second, leaves all chains out.
-    Slip stitches (joins) are never counted, unless the row is only those. A foundation row that skips more chains
-    than its first stitch's turning chain counts the extra ones as a space (foundation_space).
+    Slip stitches (joins) are never counted, unless the row is only those. A row that has more chains at its start
+    than its first stitch's turning chain (or a foundation row that skips more) counts the extra ones as a space
+    (foundation_space).
     """
     types = row.stitch_types
     if stitch is not None:  # "sc" also covers variants the engine names e.g. sc2inc, sc2tog
@@ -98,7 +117,7 @@ def row_counts(row, stitch: str | None) -> list[int]:
         return [row.stitch_count]
     slips = sum(n for name, n in types.items() if name.startswith("ss"))
     total = row.stitch_count - slips
-    space = foundation_space(row) if types.get("ch") else 0  # extra chains skipped in a foundation row (mesh)
+    space = foundation_space(row) if types.get("ch") else 0  # extra chains before the first stitch (a space)
     return [total - min(leading_chains(row), types.get("ch", 0)) + space, total - types.get("ch", 0)]
 
 

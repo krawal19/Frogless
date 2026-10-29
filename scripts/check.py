@@ -65,32 +65,48 @@ def format_report(report) -> str:
         lines += [f"  {line}" for line in shape_lines(report)]
     lines.append("")
     lines.append(f"Cost: ${report.cost_usd:.4f}")
+    if report.timings:
+        shown = ", ".join(f"{k} {v:.1f}s" for k, v in report.timings.items() if k != "total" and v)
+        lines.append(f"Time: {report.timings.get('total', 0):.1f}s total" + (f" ({shown})" if shown else ""))
     return "\n".join(lines)
 
 
+def _print_drawn(title: str, drawn: dict) -> None:
+    names = (("chart", "symbol chart"), ("connectivity", "connectivity"), ("overlay", "overlay"), ("view", "3D view"))
+    for key, what in names:
+        if drawn.get(key):
+            print(f"{title} {what}: {drawn[key]}")
+    if drawn.get("note"):
+        print(f"{title}: {drawn['note']}")
+    if drawn.get("error"):
+        print(f"{title}: could not draw the pattern: {drawn['error']}")
+    if drawn.get("seconds") is not None:
+        print(f"{title}: drawn in {drawn['seconds']}s")
+
+
 def print_outputs(report, args, label: str = "") -> None:
-    """--clean / --chart: the clean written pattern and the chart image(s), after the report."""
-    from frogless.pipeline.output import INSTALL_HINT, chart, clean_pattern
+    """--clean / --chart: the clean and corrected written patterns, and the as-written and corrected charts."""
+    from frogless.pipeline.output import INSTALL_HINT, corrected_chart, corrected_pattern, clean_pattern, written_chart
 
     if args.clean:
         print("Clean pattern:")
         print(clean_pattern(report))
         print()
+        fixed = corrected_pattern(report)
+        if fixed:
+            print("Corrected pattern:")
+            print(fixed)
+            print()
     if args.chart is not None:
         out = args.chart or ROOT / "logs" / "charts" / args.pattern.stem
         out = Path(out) / "".join(c if c.isalnum() or c in "-_" else "_" for c in label) if label else Path(out)
         try:
-            drawn = chart(report, out)
+            _print_drawn("As written", written_chart(report, out))
+            if report.verdict and report.verdict.fixes:
+                _print_drawn("Corrected", corrected_chart(report, out))
         except ImportError:
             print(INSTALL_HINT)
             return
-        shown = [(k, drawn[k]) for k in ("chart", "view") if drawn.get(k)]
-        for what, path in shown:
-            print(f"{'Chart' if what == 'chart' else '3D view'}: {path}")
-        if drawn.get("note"):
-            print(drawn["note"])
-        if drawn.get("error"):
-            print(f"Could not draw the pattern: {drawn['error']}")
         print()
 
 
@@ -105,9 +121,11 @@ def main():
                         help="do not ask Alice and Bob (model) about a pattern that does not simply work")
     parser.add_argument("--terms", choices=["auto", "US", "UK"], default="auto",
                         help="stitch names: detect (default), or force US or UK")
-    parser.add_argument("--clean", action="store_true", help="also print the clean written pattern")
+    parser.add_argument("--clean", action="store_true",
+                        help="also print the clean written pattern, and the corrected pattern when the review found fixes")
     parser.add_argument("--chart", nargs="?", const="", metavar="DIR",
-                        help="also draw the crochet chart (or the 3D view for clearly 3D pieces) into DIR "
+                        help="also draw the pattern as written and, when the review found fixes, the corrected pattern "
+                             "(symbol chart, connectivity, overlay, 3D view for clearly 3D pieces) into DIR "
                              "(default logs/charts/<pattern name>/); needs Playwright")
     args = parser.parse_args()
     text = args.pattern.read_text(encoding="utf-8")

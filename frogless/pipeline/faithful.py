@@ -27,7 +27,7 @@ from ..patterns.placement import repeated_phrases
 from .guards import reading_problem
 from .report import RowResult
 from .translate import CACHE_DIR as TRANSLATE_CACHE_DIR
-from .translate import ask_cached, retranslate_row
+from .translate import PICK_NOTE, ask_cached, retranslate_row
 
 ROLE = "faithfulness"
 PROMPT = ROOT / "frogless" / "prompts" / "faithful_row.md"
@@ -133,13 +133,14 @@ def _judge(guide: str, text: str, row: RowResult, english: list[str], cache_dir:
 def _with_answer(row: RowResult, english: list[str], answer: dict) -> RowResult:
     """Record the checker's answer on the row."""
     verdict = answer["verdict"]
+    picked = row.note if row.note.startswith(PICK_NOTE) else ""  # which of several translations was chosen, and why
     row = replace(row, english=" ".join(english), reading="", why="")
     if verdict == "faithful":
-        return replace(row, faithful=True, note="")
+        return replace(row, faithful=True, note=picked)
     if verdict == "interpreted":
         reading, why = answer["reading"] or "one of the possible readings", answer["reason"]
         return replace(row, faithful=True, reading=reading, why=why,
-                       note=f"read as {reading}" + (f" ({why})" if why else ""))
+                       note=f"read as {reading}" + (f" ({why})" if why else "") + (f"; {picked}" if picked else ""))
     if verdict == "mismatch":
         return replace(row, faithful=False, note=answer["reason"])
     return replace(row, faithful=None, note=answer["reason"] or "could not tell if the code matches")

@@ -1,6 +1,7 @@
 """check_pattern(): the whole Frogless pipeline for one written pattern."""
 
 import re
+import time
 from dataclasses import replace
 
 from ..engine import Engine, get_engine
@@ -28,41 +29,62 @@ def check_pattern(text: str, *, engine: Engine | None = None, use_model: bool = 
     and let code referee them; may suggest re-checked fixes. Part of the model steps, so it needs use_model.
     terms: "auto" detects US or UK stitch names; "US" or "UK" chooses. UK is converted to US first.
     """
+    started = time.perf_counter()
+    timings = dict.fromkeys(("translate", "faithfulness", "reconcile", "ledger", "engine_verdict", "review", "shape"), 0.0)
+
+    def lap(stage: str, since: float) -> float:
+        now = time.perf_counter()
+        timings[stage] = round(timings.get(stage, 0.0) + now - since, 2)
+        return now
+
     original = text
     found, note = _read_terms(text, terms)
     if found.kind == "UK":
         text = to_us(text)
     text, repeat_notes = merge_repeat_chains(text)  # a chain written twice across a repeat's end is one chain
     engine = engine or get_engine()
+    t = time.perf_counter()
     rows, cost = rule_rows(engine, text), 0.0
     if use_model:
         rows, spent = translate_flagged(engine, text, rows)
         cost += spent
+        t = lap("translate", t)
         if faithfulness:
             rows, spent = check_faithfulness(engine, text, rows)
             cost += spent
+            t = lap("faithfulness", t)
         if count_retry:
             rows, spent = reconcile_counts(engine, text, rows)
             cost += spent
+            t = lap("reconcile", t)
+    else:
+        t = lap("translate", t)
     rows = [replace(r, synthetic=True, code="") if engine.is_marker(r.source) else r for r in rows]
     rows = _with_repeat_notes(rows, repeat_notes)
+    t = time.perf_counter()
     if use_model and ledger:
         rows, spent = count_ledger(engine, text, rows)
         cost += spent
+        t = lap("ledger", t)
 
     report = PatternReport(text=original, rows=rows, cost_usd=cost, terms=found)
     if note:
         report.notes.append(note)
     report.check = engine.check(report.code) if report.code else None
     report.verdict, report.stated, report.computed = decide_verdict(engine, text, rows, report.check)
+    t = lap("engine_verdict", t)
     if use_model and review:
         report.cost_usd += review_report(engine, text, report)
+        t = lap("review", t)
     if report.check:  # hints about the finished piece; they never change the verdict
         report.shape = check_shape(report.check.rows, from_ring=starts_from_ring(text), flat=meant_flat(text))
         v = report.verdict
         if v and v.kind == "breaks" and v.row is not None:  # corners of a round that breaks (or after it) are not to be trusted
             report.shape = [f for f in report.shape
                             if not (f.kind in POLYGON_KINDS and f.row is not None and f.row >= v.row)]
+    lap("shape", t)
+    timings["total"] = round(time.perf_counter() - started, 2)
+    report.timings = timings
     return report
 
 

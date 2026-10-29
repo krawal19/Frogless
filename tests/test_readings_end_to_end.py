@@ -250,7 +250,7 @@ def test_an_interpreted_verdict_is_refused_for_code_that_deletes_from_the_first_
     monkeypatch.setattr(translate, "ask_cached", lambda p, r, s, c, n: real(p, r, s, tmp_path / n, n))
     monkeypatch.setattr(faithful, "ask_cached", translate.ask_cached)
     engine = get_engine()
-    rows = translate_flagged(engine, A, rule_rows(engine, A), tmp_path / "t")[0]
+    rows = translate_flagged(engine, A, rule_rows(engine, A), tmp_path / "t", samples=1)[0]
     # the first translation is already in `rows`; the checker is not asked for a verdict on an unrelated rule row
     rows, _ = check_faithfulness(engine, A, rows, tmp_path / "f", tmp_path / "t")
     row = rows[3]

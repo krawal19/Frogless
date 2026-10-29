@@ -175,10 +175,11 @@ class Engine(ABC):
         """Turn an engine-neutral pattern spec (frogless.testset.spec.Spec) into engine code."""
 
     @abstractmethod
-    def render(self, code: str, out_dir) -> dict:
-        """Draw the pattern to images in out_dir.
+    def render(self, code: str, out_dir, name: str = "render") -> dict:
+        """Draw the pattern to images in out_dir, files named after `name`.
 
-        Returns {"model_3d": path|None, "chart_2d": path|None, "error": str|None};
+        Returns {"model_3d": path|None, "chart_2d": path|None, "error": str|None}, where chart_2d is the
+        standard crochet symbol chart; "connectivity_2d" and "overlay_2d" may hold the other chart views;
         backends may add more keys (for example extra camera angles).
         """
 

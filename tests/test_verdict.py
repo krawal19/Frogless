@@ -111,8 +111,8 @@ def test_bare_count_counts_mesh_chains_but_not_the_turning_chain():
 
 
 def test_corner_chains_in_a_round_count_but_the_starting_chain_does_not():
-    lines = [("Round 1: 4 sc in ring (4)", True), ("Round 2: ch 2, (sc, ch 2, sc) in each st around (12)", True)]
-    kinds = ["ch", "ch"] + ["sc", "ch", "ch", "sc"] * 2  # starting ch 2, then two corners of sc, ch 2, sc
+    lines = [("Round 1: 4 sc in ring (4)", True), ("Round 2: ch 1, (sc, ch 2, sc) in each st around (12)", True)]
+    kinds = ["ch"] + ["sc", "ch", "ch", "sc"] * 2  # starting ch 1, then two corners of sc, ch 2, sc
     v, _, computed = run(lines, [info(1, 4), graph_row(2, kinds)])
     assert v.kind == "breaks" and "the instructions make 8" in v.message  # 4 sc + 4 corner chains = 8
     lines[1] = (lines[1][0].replace("(12)", "(8)"), True)

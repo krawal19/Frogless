@@ -1,17 +1,24 @@
 """Step 1: turn a pattern into rows of engine code.
 
 Rules translator first, then the stated-count gate, then a language model for each row
-still flagged, one call per row. Without a model, flagged rows stay flagged.
+still flagged. Without a model, flagged rows stay flagged.
+
+Model answers vary from run to run, so a flagged row is translated `samples` times (3 by default; the translator's
+"samples" in config/models.json) and code picks the answer (_referee): answers the engine rejects are dropped, then
+an answer whose row count fits the stated count wins, then the answer most attempts agree on, and only then does the
+faithfulness check look at the pick (the next best if it is a mismatch). samples=1 is one call per row.
 """
 
 import hashlib
 import json
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from pathlib import Path
 
 from ..engine import Engine
 from ..models.client import ROOT, chat, load_config
-from .gate import gate_translation
+from ..patterns.stated import stated_count
+from .gate import gate_translation, row_counts
 from .report import RowResult
 
 ROLE = "translator"
@@ -57,13 +64,18 @@ def _rows_listing(rows: list[RowResult]) -> str:
     return "\n".join(out)
 
 
-def _row_prompt(guide: str, text: str, rows: list[RowResult], row: RowResult, feedback: str = "") -> str:
-    """The translate prompt for one row. `feedback` (why an earlier attempt was wrong) goes last."""
+def _row_prompt(guide: str, text: str, rows: list[RowResult], row: RowResult, feedback: str = "",
+                attempt: tuple[int, int] | None = None) -> str:
+    """The translate prompt for one row. `feedback` (why an earlier attempt was wrong) goes last.
+    `attempt` (k, n) adds the line "Attempt k of n" at the very end: it only gives each independent attempt
+    its own cache key, the static start of the prompt stays the same."""
     tail = ""
     if feedback:
         tail = ("\nYour previous attempt for this row was wrong, because: " + feedback.strip()
                 + "\nTranslate it again so that the code does what the row says, with no such problem."
                 " Still translate literally and never correct the pattern.\n")
+    if attempt:
+        tail += f"\nAttempt {attempt[0]} of {attempt[1]}\n"
     return PROMPT.read_text(encoding="utf-8").format(
         guide=guide, original=text.strip(), rows=_rows_listing(rows), index=row.index, source=row.source,
         feedback=tail)
@@ -122,22 +134,113 @@ def _apply(row: RowResult, reply: dict) -> RowResult:
     return replace(done, status="ok", code=code, note="")
 
 
-def translate_flagged(engine: Engine, text: str, rows: list[RowResult],
-                      cache_dir: Path = CACHE_DIR) -> tuple[list[RowResult], float]:
-    """Fill flagged rows using the model, one call per row, in order.
+PICK_NOTE = "picked attempt"  # starts the note of a row chosen among several attempts
 
-    Later rows see earlier model answers as context. Synthetic and already-translated rows
-    are never sent. Returns (rows, cost in USD); cached replies cost nothing.
+
+def _samples(samples: int | None) -> int:
+    if samples is None:
+        samples = load_config()["roles"][ROLE].get("samples", 3)
+    return max(1, int(samples))
+
+
+def _norm(code: str) -> str:
+    return "".join(code.split()).lower()
+
+
+def _evaluate(engine: Engine, rows: list[RowResult], i: int, code: str) -> tuple[bool, bool]:
+    """(accepted by the engine, row count fits the stated count) for row i written as `code`, after the rows before it.
+    Only invalid code is a rejection; a stated count the code misses is just not a fit."""
+    check = engine.check("\n".join([r.code for r in rows[:i] if r.code] + [code]))
+    if check.error is not None and check.error.kind == "invalid":
+        return False, False
+    stated = stated_count(rows[i].source)
+    if not code or stated is None or stated.multi_size or not check.ok or not check.rows:
+        return True, False
+    return True, stated.count in row_counts(check.rows[-1], stated.stitch)
+
+
+def _referee(engine: Engine, text: str, rows: list[RowResult], i: int, candidates: list[RowResult],
+             judge_cache_dir: Path | None) -> tuple[RowResult, float]:
+    """Pick the row among the independent attempts at row i. Code first, the language model last:
+    drop the attempts the engine rejects; prefer one whose count fits the stated count; prefer the one most
+    attempts agree on; only then ask the faithfulness check about the pick, and about the next best if it
+    is a mismatch. The pick's note says which attempt won and why. Returns (row, cost in USD)."""
+    from . import faithful  # faithful.py imports this module
+
+    n, cost = len(candidates), 0.0
+    ok = [(k, c) for k, c in enumerate(candidates, 1) if c.status == "ok"]
+    if not ok:
+        return candidates[0], cost
+    judged = {k: _evaluate(engine, rows, i, c.code) for k, c in ok}
+    valid = [(k, c) for k, c in ok if judged[k][0]]
+    dropped = len(ok) - len(valid)
+    pool = valid or ok  # if the engine rejects every attempt, the retry loop deals with them
+    groups: dict[str, list[tuple[int, RowResult]]] = {}
+    for k, c in pool:
+        groups.setdefault(_norm(c.code), []).append((k, c))
+    ranked = sorted(groups.values(), key=lambda g: (not judged[g[0][0]][1], -len(g), g[0][0]))
+
+    def pick(group, tail: str = "") -> RowResult:
+        k, c = group[0]
+        why = []
+        if judged[k][1]:
+            why.append("its count fits the stated count")
+        if len(group) > 1:
+            why.append(f"{len(group)} of {n} attempts agree")
+        if dropped:
+            why.append(f"{dropped} rejected by the engine")
+        if tail:
+            why.append(tail)
+        return replace(c, note=f"{PICK_NOTE} {k} of {n}" + (": " + ", ".join(why) if why else ""))
+
+    if len(ranked) == 1:
+        return pick(ranked[0]), cost
+    guide = engine.notation_guide()
+    for tried, group in enumerate(ranked):
+        k, c = group[0]
+        later = "" if tried == 0 else "an earlier pick did not match the row"
+        if not c.code:  # a prose row: nothing to compare
+            return pick(group, later), cost
+        english = faithful._english(engine, rows[:i] + [c], i)
+        if all(line.startswith("UNSUPPORTED") for line in english):  # nothing to compare: take it
+            return pick(group, later), cost
+        answer, spent = faithful._judge(guide, text, c, english, judge_cache_dir or faithful.CACHE_DIR)
+        cost += spent
+        if answer["verdict"] != "mismatch":
+            return pick(group, later), cost
+    return pick(ranked[0], "the check found a mismatch in every attempt"), cost
+
+
+def translate_flagged(engine: Engine, text: str, rows: list[RowResult],
+                      cache_dir: Path = CACHE_DIR, samples: int | None = None,
+                      judge_cache_dir: Path | None = None) -> tuple[list[RowResult], float]:
+    """Fill flagged rows using the model, in order.
+
+    Each row is translated `samples` times independently (None: the translator's "samples" setting, 3 if unset)
+    and the referee picks (_referee); samples=1 is one call per row. Later rows see earlier model answers as
+    context. Synthetic and already-translated rows are never sent. Returns (rows, cost in USD); cached replies
+    cost nothing.
     """
     rows, total = list(rows), 0.0
     todo = [i for i, r in enumerate(rows) if r.status == "flagged" and not r.synthetic]
     if not todo:
         return rows, total
-    guide = engine.notation_guide()
+    guide, samples = engine.notation_guide(), _samples(samples)
     for i in todo:
-        reply, cost = _ask(_row_prompt(guide, text, rows, rows[i]), cache_dir)
-        total += cost
-        rows[i] = _apply(rows[i], reply)
+        if samples == 1:
+            reply, cost = _ask(_row_prompt(guide, text, rows, rows[i]), cache_dir)
+            total += cost
+            rows[i] = _apply(rows[i], reply)
+            continue
+        # attempt 1 is the plain prompt (the same cache entry as a single attempt); the others carry a nonce line
+        prompts = [_row_prompt(guide, text, rows, rows[i], attempt=(k, samples) if k > 1 else None)
+                   for k in range(1, samples + 1)]
+        with ThreadPoolExecutor(samples) as pool:
+            replies = list(pool.map(lambda p: _ask(p, cache_dir), prompts))
+        total += sum(cost for _, cost in replies)
+        rows[i], spent = _referee(engine, text, rows, i, [_apply(rows[i], reply) for reply, _ in replies],
+                                  judge_cache_dir)
+        total += spent
     return rows, total
 
 

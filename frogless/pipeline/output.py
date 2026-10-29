@@ -1,15 +1,20 @@
 """What the user gets besides the verdict: a clean written pattern and a picture of the piece.
 
 clean_pattern(report) rewrites the CHECKED code as plain US crochet text, row by row, with the
-stitch count at the end of each row. chart(report, out_dir) draws the assembled code: the crochet
-chart for flat pieces, and the 3D view only for pieces the shape hints call clearly 3D (the 3D view
-bends flat pieces, so it is not shown for them). Neither function shows engine code.
+stitch count at the end of each row. chart(report, out_dir) draws the assembled code: the standard
+crochet symbol chart (with the connectivity diagram and the overlay on the side), and the 3D view only for
+pieces the shape hints call clearly 3D (the 3D view bends flat pieces, so it is not shown for them). For the as-written / corrected
+pair: written_chart (every row as written, mistakes included), corrected_pattern, corrected_code and
+corrected_chart (the review's re-checked fixes applied). None of these shows engine code except
+corrected_code.
 """
 
 import re
 from pathlib import Path
 
 from ..engine import get_engine
+from ..patterns.repeats import merge_repeat_chains
+from ..patterns.terms import to_us
 from .messages import change_text, user_message
 from .report import PatternReport, RowResult
 from .verdict import _map_rows
@@ -180,35 +185,183 @@ def _code_before(report: PatternReport, row: int) -> str:
     return "\n".join(kept)
 
 
-def chart(report: PatternReport, out_dir) -> dict:
-    """Draw the checked pattern into out_dir.
-
-    Returns {"chart", "view", "kind", "error", "note"}: "chart" is the crochet chart (always drawn
-    when it can be), "view" is the 3D image and is set only when kind is "3d" (the piece is clearly
-    3D; the 3D view is wrong for flat pieces). If the pattern breaks or has unreadable rows, only
-    the rows before that are drawn, and "note" says so.
-    """
-    kind = _kind(report)
-    result = {"chart": None, "view": None, "kind": kind, "error": None, "note": ""}
-    v = report.verdict
-    code = report.code
-    if v and v.kind in ("breaks", "unreadable") and v.row is not None:
-        code = _code_before(report, v.row)
-        result["note"] = (f"Drawn up to {_word_of(report)} {v.row - 1}, where the pattern "
-                          f"{'breaks' if v.kind == 'breaks' else 'could no longer be read'}.")
-    if not code.strip() or code.strip() == "ring.R0":
-        result["error"] = "nothing to draw"
-        result["note"] = ""
-        return result
+def _draw(code: str, out_dir, name: str, show_3d: bool) -> dict:
+    """Render code into out_dir as <name>_*.png. Returns the picture paths, "seconds", and "error" (None if drawn)."""
+    out = {"chart": None, "symbols": None, "symbols_svg": None, "connectivity": None, "overlay": None,
+           "view": None, "error": None, "seconds": None}
     try:
-        drawn = get_engine().render(code, Path(out_dir))
+        drawn = get_engine().render(code, Path(out_dir), name)
     except Exception as e:  # missing Playwright or Chromium, or the page failing
         message = f"{type(e).__name__}: {e}"
-        result["error"] = INSTALL_HINT if ("Playwright" in message or "Chromium" in message
-                                           or isinstance(e, ImportError)) else message
-        return result
-    result["chart"] = drawn.get("chart_2d")
-    if kind == "3d":
-        result["view"] = drawn.get("model_3d")
-    result["error"] = drawn.get("error") or (None if result["chart"] or result["view"] else drawn.get("chart_error"))
-    return result
+        out["error"] = INSTALL_HINT if ("Playwright" in message or "Chromium" in message
+                                        or isinstance(e, ImportError)) else message
+        return out
+    charts = drawn.get("charts_2d") or {}
+    out["chart"] = out["symbols"] = drawn.get("chart_2d")  # the symbol chart is the default chart
+    out["symbols_svg"] = charts.get("symbols_svg")
+    out["connectivity"], out["overlay"] = charts.get("connectivity"), charts.get("overlay")
+    if show_3d:
+        out["view"] = drawn.get("model_3d")
+    out["seconds"] = drawn.get("seconds")
+    out["error"] = drawn.get("error") or (None if out["chart"] or out["view"] else drawn.get("chart_error"))
+    return out
+
+
+def _has_code(code: str) -> bool:
+    return bool(code.strip()) and code.strip() != "ring.R0"
+
+
+def chart(report: PatternReport, out_dir, name: str = "chart") -> dict:
+    """Draw the checked pattern into out_dir.
+
+    Returns {"chart", "symbols", "symbols_svg", "connectivity", "overlay", "view", "kind", "error", "note",
+    "seconds"}: "chart" (same as "symbols") is the standard crochet symbol chart, always drawn when it can be;
+    "connectivity" is the stitch-id diagram and "overlay" the symbols over it; "view" is the 3D image and is set
+    only when kind is "3d" (the piece is clearly 3D; the 3D view is wrong for flat pieces). If the pattern
+    breaks or has unreadable rows, only the rows before that are drawn, and "note" says so.
+    """
+    kind = _kind(report)
+    v = report.verdict
+    code, note = report.code, ""
+    if v and v.kind in ("breaks", "unreadable") and v.row is not None:
+        code = _code_before(report, v.row)
+        note = (f"Drawn up to {_word_of(report)} {v.row - 1}, where the pattern "
+                f"{'breaks' if v.kind == 'breaks' else 'could no longer be read'}.")
+    if not _has_code(code):
+        return {"chart": None, "view": None, "kind": kind, "error": "nothing to draw", "note": ""}
+    result = _draw(code, out_dir, name, kind == "3d")
+    return {**result, "kind": kind, "note": note}
+
+
+def written_chart(report: PatternReport, out_dir, name: str = "written") -> dict:
+    """Draw the pattern AS WRITTEN, mistakes included, from every row's current code (not just up to the break).
+
+    Same result as chart(), plus "fallback": True when the engine refused the whole code and only the rows
+    before the break were drawn ("note" says so). Files are <name>_symbols.png/.svg, <name>_connectivity.png,
+    <name>_overlay.png (and <name>_3d.png for a clearly 3D piece).
+    """
+    kind = _kind(report)
+    code = report.code
+    if not _has_code(code):
+        return {"chart": None, "view": None, "kind": kind, "error": "nothing to draw", "note": "", "fallback": False}
+    unread = [r for r in report.rows if not r.synthetic and not r.code]
+    note = (f"{len(unread)} row{'s' if len(unread) > 1 else ''} could not be read and "
+            f"{'are' if len(unread) > 1 else 'is'} missing from the picture.") if unread else ""
+    result = _draw(code, out_dir, name, kind == "3d")
+    fallback = False
+    v = report.verdict
+    if result["error"] and not result["chart"] and not result["view"] and v and v.kind == "breaks" and v.row is not None:
+        before = _code_before(report, v.row)
+        if _has_code(before) and before != code:
+            retry = _draw(before, out_dir, name, kind == "3d")
+            if retry["chart"] or retry["view"]:
+                result, fallback = retry, True
+                note = (f"The engine could not draw the pattern as written ({_short(result['error'] or v.message)}); "
+                        f"drawn up to {_word_of(report)} {v.row - 1}, where the pattern breaks.")
+    return {**result, "kind": kind, "note": note, "fallback": fallback}
+
+
+def _short(text: str, limit: int = 120) -> str:
+    return text if len(text) <= limit else text[: limit - 3] + "..."
+
+
+def corrected_code(report: PatternReport) -> str | None:
+    """The engine code of the pattern with the review's re-checked fixes applied, or None when it has none."""
+    v, rv = report.verdict, report.review
+    if not (v and v.fixes and rv and rv.fixed_report is not None):
+        return None
+    return rv.fixed_report.code or None
+
+
+def corrected_chart(report: PatternReport, out_dir, name: str = "corrected") -> dict:
+    """Draw the corrected pattern (corrected_code) like written_chart(); error "no fixes" when there are none."""
+    kind = _kind(report)
+    code = corrected_code(report)
+    if code is None:
+        return {"chart": None, "view": None, "kind": kind, "error": "no fixes", "note": ""}
+    if not _has_code(code):
+        return {"chart": None, "view": None, "kind": kind, "error": "nothing to draw", "note": ""}
+    return {**_draw(code, out_dir, name, kind == "3d"), "kind": kind, "note": ""}
+
+
+_ROW_LABEL = re.compile(r"^(?P<lead>\s*)(?P<word>rows?|rounds?|rnds?|r)(?P<sp>\s*)(?P<a>\d+)"
+                        r"(?:(?P<dash>\s*[-–]\s*)(?P<b>\d+))?(?P<rest>\s*:.*)$", re.IGNORECASE | re.DOTALL)
+
+
+def _loose(text: str) -> "re.Pattern[str]":
+    """The text as a pattern that ignores differences in whitespace."""
+    return re.compile(r"\s+".join(re.escape(w) for w in text.split()))
+
+
+def _place(lines: list[str], original: str) -> int | None:
+    """Index of the line that holds the written row `original`, or None."""
+    wanted = _loose(original)
+    for i, line in enumerate(lines):
+        if wanted.search(line):
+            return i
+    return None
+
+
+def _shift(line: str, by: int) -> str:
+    """The row label at the start of a line moved on by `by` ("Round 5:" -> "Round 6:", "Rows 5-6:" too)."""
+    m = _ROW_LABEL.match(line)
+    if not m or not by:
+        return line
+    new = f"{m['lead']}{m['word']}{m['sp']}{int(m['a']) + by}"
+    if m["b"]:
+        new += f"{m['dash']}{int(m['b']) + by}"
+    return new + m["rest"]
+
+
+def _first_number(line: str) -> int | None:
+    m = _ROW_LABEL.match(line)
+    return int(m["a"]) if m else None
+
+
+def _labelled_row(f) -> str:
+    text = f.fixed_text.strip()
+    return text if _ROW_LABEL.match(text) else f"Row {f.row}: {text}"
+
+
+def _try_apply(base: str, fixes) -> list[str] | None:
+    """The base text's lines with the fixes applied and marked, or None if a fixed row is not in the text."""
+    lines = base.splitlines()
+    marks: dict[int, str] = {}  # line index -> its mark
+    for f in (f for f in fixes if not f.insert):
+        at = _place(lines, f.original)
+        if at is None:
+            return None
+        # replace only the row itself: a line may hold more than the row
+        lines[at] = _loose(f.original).sub(lambda _m: f.fixed_text.strip(), lines[at], count=1)
+        marks[at] = _mark(f)
+    out = [ln + (f"  {marks[i]}" if i in marks else "") for i, ln in enumerate(lines)]
+    added = False
+    for f in sorted((f for f in fixes if f.insert), key=lambda f: f.row):
+        at = next((i for i, ln in enumerate(out) if (_first_number(ln) or 0) >= f.row), len(out))
+        for i in range(at, len(out)):
+            out[i] = _shift(out[i], 1)
+        out.insert(at, f"{_labelled_row(f)}  [added: a row seems to be missing here]")
+        added = True
+    if added:
+        out.insert(0, "Note: a row was added, so the rows after it are numbered one higher than in the original.")
+    return out
+
+
+def corrected_pattern(report: PatternReport) -> str | None:
+    """The written pattern with the review's re-checked fixes applied, each changed row marked; None if no fixes.
+
+    Plain written text (no engine code): the pattern's own lines, the fixed rows reading as fixed and ending in
+    "[suggested fix: ...]" (or "[works if the turning chain counts as a stitch; ...]"), an inserted row ending in
+    "[added: ...]". A UK pattern is corrected in its US-terms conversion, since that is the text that was checked.
+    """
+    v = report.verdict
+    if not (v and v.fixes):
+        return None
+    bases = [report.text]
+    if report.terms and report.terms.kind == "UK":
+        bases.append(to_us(report.text))
+    for base in bases + [merge_repeat_chains(b)[0] for b in bases]:
+        lines = _try_apply(base, v.fixes)
+        if lines is not None:
+            return "\n".join(lines)
+    return None

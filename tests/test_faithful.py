@@ -194,3 +194,14 @@ def test_replies_are_cached_on_disk(monkeypatch, tmp_path):
 def test_an_invalid_reply_means_cannot_tell(monkeypatch, tmp_path):
     _, out, _ = run(monkeypatch, tmp_path, [{"verdict": "banana"}, verdict("faithful")])
     assert out[1].faithful is None
+
+
+def test_the_note_of_a_picked_translation_survives_a_faithful_verdict():
+    from frogless.pipeline.faithful import _with_answer
+    from frogless.pipeline.report import RowResult
+
+    row = RowResult(index=0, source="x", code="6sc", status="ok", note="picked attempt 2 of 3: 2 of 3 attempts agree")
+    done = _with_answer(row, ["6 sc"], {"verdict": "faithful", "reading": "", "reason": ""})
+    assert done.faithful is True and done.note == row.note
+    done = _with_answer(row, ["6 sc"], {"verdict": "mismatch", "reading": "", "reason": "wrong"})
+    assert done.note == "wrong"

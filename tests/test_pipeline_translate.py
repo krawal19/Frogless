@@ -39,10 +39,10 @@ def answer(code):
     return json.dumps({"code": code})
 
 
-def run(monkeypatch, tmp_path, replies, rows=None):
+def run(monkeypatch, tmp_path, replies, rows=None, samples=1):
     fake = FakeChat(replies)
     monkeypatch.setattr(translate, "chat", fake)
-    out, cost = translate_flagged(FakeEngine(), TEXT, rows or make_rows(), cache_dir=tmp_path)
+    out, cost = translate_flagged(FakeEngine(), TEXT, rows or make_rows(), cache_dir=tmp_path, samples=samples)
     return fake, out, cost
 
 
@@ -133,3 +133,107 @@ def test_a_reply_that_used_the_whole_budget_is_retried_with_the_larger_one(tmp_p
     reply, cost = translate.ask_cached("x <pattern> y", "translator", translate.ANSWER_SCHEMA, tmp_path, "t")
     assert calls == [None, 8000]
     assert reply["text"] == '{"code": "6sc"}' and round(cost, 2) == 0.03
+
+
+# ---- several attempts and the referee ----
+class RefEngine(FakeEngine):
+    """Code like "12sc" is a row of that many sc; "BAD" is invalid code."""
+
+    def check(self, code):
+        from types import SimpleNamespace
+
+        if "BAD" in code:
+            return SimpleNamespace(ok=False, error=SimpleNamespace(kind="invalid", message="unknown stitch"), rows=[])
+        rows = [SimpleNamespace(index=k + 1, stitch_count=int(line.split("sc")[0]), stitch_types={"sc": int(line.split("sc")[0])})
+                for k, line in enumerate(code.splitlines())]
+        return SimpleNamespace(ok=True, error=None, rows=rows)
+
+    def describe(self, code):
+        return [code]
+
+
+def by_attempt(*codes):
+    """A chat that answers by the "Attempt k of n" line, so threads cannot reorder the replies. Attempt 1 has no line."""
+    calls = []
+
+    def chat(role, messages, **opts):
+        prompt = messages[0]["content"]
+        calls.append(prompt)
+        k = int(prompt.split("Attempt ")[1].split(" of")[0]) if "Attempt " in prompt.split("Translate row")[-1] else 1
+        return {"text": answer(codes[k - 1]), "usage": {"input_tokens": 10, "output_tokens": 5}, "cost_usd": 0.01}
+
+    return chat, calls
+
+
+def referee_run(monkeypatch, tmp_path, codes, source="Round 2: weird thing one", verdicts=None, **kw):
+    from frogless.pipeline import faithful
+
+    chat, calls = by_attempt(*codes)
+    judged = []
+
+    def judge(guide, text, row, english, cache_dir, context=""):
+        judged.append(row.code)
+        verdict = (verdicts or {}).get(row.code, "faithful")
+        return {"verdict": verdict, "reading": "", "reason": f"{row.code} is wrong"}, 0.0
+
+    monkeypatch.setattr(translate, "chat", chat)
+    monkeypatch.setattr(faithful, "_judge", judge)
+    monkeypatch.setattr(faithful, "_english", lambda engine, rows, i: [rows[i].code])
+    rows = [RowResult(index=0, source=source, origin="none", status="flagged")]
+    out, cost = translate_flagged(RefEngine(), source, rows, cache_dir=tmp_path, judge_cache_dir=tmp_path, **kw)
+    return out[0], cost, calls, judged
+
+
+def test_three_independent_attempts_with_their_own_cache_keys(monkeypatch, tmp_path):
+    row, cost, calls, _ = referee_run(monkeypatch, tmp_path, ["6sc", "6sc", "6sc"])
+    assert len(calls) == 3 and len(list(tmp_path.glob("*.json"))) == 3
+    tails = [c.split("Translate row")[-1] for c in calls]
+    assert sum("Attempt" in t for t in tails) == 2 and "Attempt 2 of 3" in "".join(tails) and "Attempt 3 of 3" in "".join(tails)
+    assert len({c.split("<pattern>")[0] for c in calls}) == 1  # the static start is the same
+    assert row.code == "6sc" and row.status == "ok" and row.origin == "model"
+    assert round(cost, 2) == 0.03
+
+
+def test_the_answer_most_attempts_agree_on_wins(monkeypatch, tmp_path):
+    row, _, _, _ = referee_run(monkeypatch, tmp_path, ["7sc", "6sc", "6sc"])
+    assert row.code == "6sc"
+    assert row.note.startswith("picked attempt 2 of 3") and "2 of 3 attempts agree" in row.note
+
+
+def test_an_attempt_the_engine_rejects_is_dropped(monkeypatch, tmp_path):
+    row, _, _, judged = referee_run(monkeypatch, tmp_path, ["BAD", "BAD", "6sc"])
+    assert row.code == "6sc"  # two rejected attempts do not outvote the one valid one
+    assert "2 rejected by the engine" in row.note
+    assert judged == []  # one valid answer: nothing to choose between
+
+
+def test_an_attempt_whose_count_fits_is_preferred(monkeypatch, tmp_path):
+    row, _, _, _ = referee_run(monkeypatch, tmp_path, ["7sc", "7sc", "6sc"], source="Round 2: weird thing one (6)")
+    assert row.code == "6sc"  # the single attempt that makes the stated 6 beats two that agree on 7
+    assert "its count fits the stated count" in row.note
+
+
+def test_the_next_best_is_tried_when_the_check_finds_a_mismatch(monkeypatch, tmp_path):
+    row, _, _, judged = referee_run(monkeypatch, tmp_path, ["7sc", "7sc", "6sc"], verdicts={"7sc": "mismatch"})
+    assert judged == ["7sc", "6sc"] and row.code == "6sc"
+    assert "an earlier pick did not match the row" in row.note
+    row, _, _, _ = referee_run(monkeypatch, tmp_path / "b", ["7sc", "8sc", "6sc"],
+                               verdicts={"7sc": "mismatch", "8sc": "mismatch", "6sc": "mismatch"})
+    assert row.code == "7sc" and row.status == "ok"  # all mismatch: the best stays, the retry loop takes over
+
+
+def test_the_faithfulness_check_is_only_asked_when_there_is_a_choice(monkeypatch, tmp_path):
+    _, _, _, judged = referee_run(monkeypatch, tmp_path, ["6sc", "6sc", "6sc"])
+    assert judged == []
+
+
+def test_one_sample_keeps_the_old_behaviour(monkeypatch, tmp_path):
+    row, cost, calls, judged = referee_run(monkeypatch, tmp_path, ["6sc", "7sc", "7sc"], samples=1)
+    assert len(calls) == 1 and "Attempt" not in calls[0] and judged == []
+    assert row.code == "6sc" and row.note == "" and round(cost, 2) == 0.01
+
+
+def test_samples_default_comes_from_the_translator_config(monkeypatch):
+    assert translate._samples(None) == 3  # config/models.json
+    monkeypatch.setattr(translate, "load_config", lambda: {"roles": {"translator": {"samples": 1}}})
+    assert translate._samples(None) == 1 and translate._samples(2) == 2

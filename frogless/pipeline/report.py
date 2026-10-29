@@ -105,6 +105,8 @@ class PatternReport:
     shape: list = field(default_factory=list)  # ShapeFinding hints about the finished piece; never change the verdict
     terms: Terms | None = None  # US or UK stitch names, as detected or chosen
     review: Review | None = None  # the Alice-and-Bob review, if it ran
+    timings: dict[str, float] = field(default_factory=dict)  # seconds per stage: translate, faithfulness, reconcile,
+    # ledger, engine_verdict, review, shape (0.0 for a stage that did not run), and total
 
     @property
     def code(self) -> str:

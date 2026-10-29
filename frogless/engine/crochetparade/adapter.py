@@ -131,10 +131,10 @@ class CrochetEngine(Engine):
 
         return encode(spec)
 
-    def render(self, code: str, out_dir) -> dict:
+    def render(self, code: str, out_dir, name: str = "render") -> dict:
         from .render import render_code
 
-        return render_code(self.repo, resolve_spaces(code), out_dir)
+        return render_code(self.repo, resolve_spaces(code), out_dir, name)
 
     def render_many(self, items, out_dir) -> list[dict]:
         from .render import render_many

@@ -93,8 +93,8 @@ def test_rows_that_fit_are_counted_only(monkeypatch, tmp_path):
     v, rep = verdict(out)
     assert (v.kind, v.counted, v.row) == ("works_counts_only", [3, 4], None)
     assert rep.computed[3] == 18 and rep.computed[1] == 6
-    assert user_message(rep) == ("✅ Stitch counts check out. Rounds 3, 4 were read by AI and checked by count only "
-                                 "(they can't be modelled stitch by stitch).")
+    assert user_message(rep) == ("✅ Stitch counts check out. Rounds 3, 4 were checked by count only "
+                                 "(they can't be drawn stitch by stitch).")
 
 
 def test_the_prompt_holds_the_whole_pattern_after_the_static_instructions(monkeypatch, tmp_path):
@@ -140,15 +140,14 @@ def test_a_count_that_misses_the_stated_total_is_a_break(monkeypatch, tmp_path):
     assert (out[3].ledger_ok, out[4].ledger_ok) == (False, None)
     v, rep = verdict(out)
     assert (v.kind, v.row, v.ledger) == ("breaks", 3, True)
-    assert user_message(rep) == "❌ Breaks at Round 3: the pattern says 18, but the instructions make 16 (counted by AI, not modelled)."
+    assert user_message(rep) == "❌ Breaks at Round 3: the pattern says 18, but the instructions make 16."
 
 
 def test_stitches_worked_into_that_the_row_below_does_not_have_is_a_break(monkeypatch, tmp_path):
     _, out, _ = run(monkeypatch, tmp_path, [answer(uses=14)])
     assert out[3].ledger_ok is False
     v, rep = verdict(out)
-    assert user_message(rep) == ("❌ Breaks at Round 3: the row works into 14 stitches of the row below, which has 12 "
-                                 "(counted by AI, not modelled).")
+    assert user_message(rep) == "❌ Breaks at Round 3: the row works into 14 stitches of the row below, which has 12."
 
 
 def test_a_later_row_is_held_to_the_count_of_the_row_before_it(monkeypatch, tmp_path):
@@ -253,9 +252,8 @@ def test_message_names_a_run_of_rounds_and_one_round():
     from frogless.pipeline.report import Verdict
     many = PatternReport(text="", rows=[RowResult(index=0, source="Round 1: sc", code="x")],
                          verdict=Verdict("works_counts_only", "", counted=[17, 18, 19]))
-    assert user_message(many) == ("✅ Stitch counts check out. Rounds 17-19 were read by AI and checked by count only "
-                                  "(they can't be modelled stitch by stitch).")
+    assert user_message(many) == ("✅ Stitch counts check out. Rounds 17-19 were checked by count only "
+                                  "(they can't be drawn stitch by stitch).")
     one = PatternReport(text="", rows=many.rows, verdict=Verdict("works_counts_only", "", counted=[17], rows=[4]))
-    assert user_message(one) == ("✅ Stitch counts check out. Round 17 was read by AI and checked by count only "
-                                 "(they can't be modelled stitch by stitch). Round 4 was also read by AI and couldn't "
-                                 "be double-checked.")
+    assert user_message(one) == ("✅ Stitch counts check out. Round 17 was checked by count only "
+                                 "(they can't be drawn stitch by stitch). Round 4 couldn't be double-checked.")

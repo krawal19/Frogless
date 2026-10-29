@@ -220,17 +220,17 @@ def user_message(report: PatternReport) -> str:
     if v.kind == "works_unverified":
         which = _rows(word, v.rows)
         verb = "was" if len(set(v.rows)) == 1 else "were"
-        text = f"✅ Stitch counts check out, but {which} {verb} read by AI and couldn't be double-checked."
+        text = f"✅ Stitch counts check out, but {which} couldn't be double-checked."
         clauses = _interpretations(v, word)
         if clauses:
             text += " They also assume " + ", and ".join(clauses) + "."
         return text + (f" ⚠ {notes}" if notes else "")
     if v.kind == "works_counts_only":
         which = _rows(word, v.counted)
-        text = (f"✅ Stitch counts check out. {which} {'was' if len(set(v.counted)) == 1 else 'were'} read by AI and "
-                "checked by count only (they can't be modelled stitch by stitch).")
+        text = (f"✅ Stitch counts check out. {which} {'was' if len(set(v.counted)) == 1 else 'were'} "
+                "checked by count only (they can't be drawn stitch by stitch).")
         if v.rows:
-            text += f" {_rows(word, v.rows)} {'was' if len(set(v.rows)) == 1 else 'were'} also read by AI and couldn't be double-checked."
+            text += f" {_rows(word, v.rows)} couldn't be double-checked."
         clauses = _interpretations(v, word)
         if clauses:
             text += " They also assume " + ", and ".join(clauses) + "."
@@ -240,7 +240,7 @@ def user_message(report: PatternReport) -> str:
     if v.kind == "breaks" and v.fixes:
         return _with_fixes(report, v, word)
     if v.kind == "breaks":
-        by_ai = " (counted by AI, not modelled)" if v.ledger else ""
+        by_ai = ""
         said, made = report.stated.get(v.row), report.computed.get(v.row)
         if said is not None and made is not None and said != made:
             text = f"❌ Breaks at {word} {v.row}: the pattern says {said}, but the instructions make {made}{by_ai}."

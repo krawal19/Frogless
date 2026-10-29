@@ -114,7 +114,7 @@ def _clean(report: PatternReport, marks: dict[int, str]) -> str:
         label_word = word or "Round"
         if row.ledger_ok is not None:  # counted by AI, never modelled: given as written
             note = ("[counts checked; not modelled]" if row.ledger_ok
-                    else "[the pattern breaks here; counted by AI, not modelled]")
+                    else "[the pattern breaks here]")
             entries.append((word, n, _written(row.source) if word else row.source.strip(), note))
             continue
         if not row.code:

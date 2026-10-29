@@ -85,8 +85,8 @@ class Verdict:
     chains_left_out: bool = False  # some bare count fits only with all chains left out (a fallback)
     interpreted: list[Interpreted] = field(default_factory=list)  # rows the code had to read one way
     rows: list[int] = field(default_factory=list)  # for "works_unverified": rows the model wrote and nothing confirmed
-    counted: list[int] = field(default_factory=list)  # for "works_counts_only": rows read by AI and checked by count only
-    ledger: bool = False  # for "breaks": the row was counted by AI, not modelled
+    counted: list[int] = field(default_factory=list)  # for "works_counts_only": rows read and checked by count only
+    ledger: bool = False  # for "breaks": the row was checked by count only
     fixes: list[Fix] = field(default_factory=list)  # suggested fixes that were re-checked and work
     observed: str = ""  # with fixes: what the check found before the review (the original message)
     observed_row: int | None = None  # with fixes: the row the check found it at

@@ -285,7 +285,7 @@ def decide_verdict(engine: Engine, text: str, rows: list[RowResult],
                         chains_left_out=chains), stated, best.computed)
     if counted:
         numbers = [r.number for r in counted if r.result.ledger_uses or r.result.ledger_makes]
-        what = f"stitch counts check out{note}; {_names(numbers)} read by AI and checked by count only"
+        what = f"stitch counts check out{note}; {_names(numbers)} checked by count only"
         return (Verdict("works_counts_only", what, counted=numbers, rows=unverified, reading=reading,
                         interpreted=interpreted, chains_left_out=chains), stated, best.computed)
     return (Verdict("works", f"stitch counts and structure check out{note}", reading=reading,

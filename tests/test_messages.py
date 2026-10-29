@@ -78,8 +78,8 @@ def test_unreadable_says_everything_before_checks_out_only_when_true():
 def test_works_unverified():
     v = Verdict("works_unverified", "x", rows=[3, 5])
     assert user_message(report(v, n=5)) == (
-        "✅ Stitch counts check out, but Rounds 3, 5 were read by AI and couldn't be double-checked.")
-    assert "Round 3 was read" in user_message(report(Verdict("works_unverified", "x", rows=[3])))
+        "✅ Stitch counts check out, but Rounds 3, 5 couldn't be double-checked.")
+    assert "Round 3 couldn't be double-checked" in user_message(report(Verdict("works_unverified", "x", rows=[3])))
 
 
 def test_real_pattern_end_to_end_without_a_model():
@@ -95,7 +95,7 @@ def test_turning_chain_fallback_is_flagged_not_a_silent_pass():
     msg = user_message(report(Verdict("works", "ok", reading=TURN_COUNTS)))
     assert msg == "⚠ Works only if the turning chain counts as a stitch."
     msg = user_message(report(Verdict("works_unverified", "x", rows=[3], reading=TURN_COUNTS), n=5))
-    assert msg.startswith("✅ Stitch counts check out, but Round 3 was read by AI")
+    assert msg.startswith("✅ Stitch counts check out, but Round 3 couldn't be double-checked")
     assert msg.endswith("⚠ Works only if the turning chain counts as a stitch.")
 
 

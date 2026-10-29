@@ -1,7 +1,9 @@
 """The HTTP API (FastAPI) and the functions the page calls.
 
-POST /api/check          check a pattern (every size of a multi-size pattern); returns the verdict, the texts and an id
-POST /api/render/{id}    draw the charts of one size of a checked pattern; returns image URLs
+POST /api/check          start a check in its own process; returns {"job": id}  (?wait=1: block and return the result)
+POST /api/render/{id}    start drawing one size of a checked pattern in its own process; returns {"job": id}  (?wait=1: block)
+GET  /api/job/{id}       the job's state: running | done | error | stopped, with the result when done
+POST /api/stop/{id}      terminate the job's process (and the drawing of the same check)
 GET  /api/examples       example patterns, read at run time from external_patterns/dev/ and logs/smoke/
 GET  /files/<id>/...     the drawn images (served from logs/web/)
 GET  /                   the page (static files in frogless/web/static/)
@@ -9,7 +11,11 @@ GET  /                   the page (static files in frogless/web/static/)
 Only the public Frogless API is used: pipeline.check, pipeline.messages and pipeline.output.
 """
 
+import multiprocessing
+import queue as queue_mod
 import re
+import subprocess
+import sys
 import threading
 import time
 import uuid
@@ -176,7 +182,10 @@ def run_check(text: str, terms: str = "auto") -> dict:
     """Check a pattern (all its sizes) and keep the reports by id. Slow when the model is needed."""
     if not text.strip():
         raise ValueError("Paste a pattern first.")
-    sized = pipeline_check.check_pattern_sizes(text, terms=terms)
+    return _store_check(pipeline_check.check_pattern_sizes(text, terms=terms))
+
+
+def _store_check(sized) -> dict:
     check_id = uuid.uuid4().hex[:12]
     _reports[check_id] = sized
     while len(_reports) > KEEP_REPORTS:
@@ -223,6 +232,157 @@ def run_render(check_id: str, size: int = 0) -> dict:
             "render_seconds": round(time.perf_counter() - started, 2)}
 
 
+# ---- jobs: a check or a drawing runs in its own process so Stop can end it ----
+KEEP_JOBS = 100
+
+
+def _check_worker(out, text: str, terms: str) -> None:
+    """Child process: run the checker and send back the reports (top-level so Windows 'spawn' can import it)."""
+    try:
+        out.put(("ok", pipeline_check.check_pattern_sizes(text, terms=terms)))
+    except BaseException as e:  # noqa: BLE001 - whatever happens, tell the parent
+        out.put(("error", f"{type(e).__name__}: {e}"))
+
+
+def _render_worker(out, lock, report, folder: str) -> None:
+    """Child process: draw the as-written and corrected charts of one report."""
+    try:
+        with lock:
+            written = output.written_chart(report, Path(folder), "written")
+            fixed = _corrected_status(report) == "fixed"
+            corrected = output.corrected_chart(report, Path(folder), "corrected") if fixed else None
+        out.put(("ok", (written, corrected)))
+    except BaseException as e:  # noqa: BLE001
+        out.put(("error", f"{type(e).__name__}: {e}"))
+
+
+_CTX = multiprocessing.get_context("spawn")
+_render_lock_mp = None
+
+
+def _mp_lock():
+    global _render_lock_mp
+    if _render_lock_mp is None:
+        _render_lock_mp = _CTX.Lock()
+    return _render_lock_mp
+
+
+def _launch(target, args: tuple):
+    """Start target(queue, *args) in a new process; returns (process, queue). Tests replace this."""
+    out = _CTX.Queue()
+    proc = _CTX.Process(target=target, args=(out, *args), daemon=True)
+    proc.start()
+    return proc, out
+
+
+def _kill(proc) -> None:
+    """End a process and everything it started (the drawing starts a browser)."""
+    pid = getattr(proc, "pid", None)
+    if pid and sys.platform == "win32":
+        subprocess.run(["taskkill", "/PID", str(pid), "/T", "/F"], capture_output=True, check=False)
+    proc.terminate()
+
+
+class Job:
+    def __init__(self, kind: str, proc, out, check_id: str | None = None, size: int = 0):
+        self.id = uuid.uuid4().hex[:12]
+        self.kind, self.proc, self.out, self.check_id, self.size = kind, proc, out, check_id, size
+        self.started = time.perf_counter()
+        self.state, self.result, self.error = "running", None, ""
+
+    def view(self) -> dict:
+        body = {"id": self.id, "kind": self.kind, "state": self.state}
+        if self.state == "done":
+            body["result"] = self.result
+        if self.state == "error":
+            body["error"] = self.error
+        return body
+
+
+_jobs: "OrderedDict[str, Job]" = OrderedDict()
+_jobs_lock = threading.Lock()
+
+
+def _add_job(job: Job) -> Job:
+    with _jobs_lock:
+        _jobs[job.id] = job
+        for old in [k for k, j in _jobs.items() if j.state != "running"][:max(0, len(_jobs) - KEEP_JOBS)]:
+            _jobs.pop(old, None)
+    return job
+
+
+def _render_result(job: Job, drawn) -> dict:
+    written, corrected = drawn
+    return {"id": job.check_id, "size": job.size, "written": _images(written),
+            "corrected": _images(corrected) if corrected else None,
+            "render_seconds": round(time.perf_counter() - job.started, 2)}
+
+
+def _finish(job: Job, kind: str, payload) -> None:
+    if kind == "error":
+        job.state, job.error = "error", str(payload)
+        return
+    try:
+        job.result = _store_check(payload) if job.kind == "check" else _render_result(job, payload)
+        job.state = "done"
+    except Exception as e:  # noqa: BLE001
+        job.state, job.error = "error", f"{type(e).__name__}: {e}"
+
+
+def poll_job(job_id: str) -> Job | None:
+    with _jobs_lock:
+        job = _jobs.get(job_id)
+        if job is None or job.state != "running":
+            return job
+        try:
+            kind, payload = job.out.get_nowait()
+        except queue_mod.Empty:
+            if job.proc.is_alive():
+                return job
+            try:  # the worker ended: its answer may still be on the way
+                kind, payload = job.out.get(timeout=0.5)
+            except queue_mod.Empty:
+                job.state, job.error = "error", "The work stopped unexpectedly."
+                return job
+        _finish(job, kind, payload)
+        return job
+
+
+def stop_job(job_id: str) -> Job | None:
+    """Terminate a job, and the drawing(s) of the same check."""
+    with _jobs_lock:
+        job = _jobs.get(job_id)
+        if job is None:
+            return None
+        group = [j for j in _jobs.values() if j is job or (job.check_id and j.check_id == job.check_id)]
+        for j in group:
+            if j.state == "running":
+                try:
+                    _kill(j.proc)
+                except Exception:  # noqa: BLE001
+                    pass
+                j.state = "stopped"
+    return job
+
+
+def start_check(text: str, terms: str = "auto") -> Job:
+    if not text.strip():
+        raise ValueError("Paste a pattern first.")
+    proc, out = _launch(_check_worker, (text, terms))
+    return _add_job(Job("check", proc, out))
+
+
+def start_render(check_id: str, size: int = 0) -> Job:
+    sized = _reports.get(check_id)
+    if sized is None:
+        raise KeyError(check_id)
+    if not 0 <= size < len(sized):
+        raise IndexError(size)
+    folder = WEB_DIR / check_id / f"size{size}"
+    proc, out = _launch(_render_worker, (_mp_lock(), sized[size][1], str(folder)))
+    return _add_job(Job("render", proc, out, check_id=check_id, size=size))
+
+
 # ---- examples ----
 def list_examples() -> list[dict]:
     """The example patterns found right now: {name, group, text}. Read from disk on every call, never copied into the repo."""
@@ -245,16 +405,30 @@ def create_api() -> FastAPI:
     app.mount("/files", StaticFiles(directory=WEB_DIR), name="files")
 
     @app.post("/api/check")
-    def api_check(req: CheckRequest) -> dict:
+    def api_check(req: CheckRequest, wait: bool = False) -> dict:
         try:
-            return run_check(req.text, req.terms)
+            return run_check(req.text, req.terms) if wait else {"job": start_check(req.text, req.terms).id}
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e))
 
+    @app.get("/api/job/{job_id}")
+    def api_job(job_id: str) -> dict:
+        job = poll_job(job_id)
+        if job is None:
+            raise HTTPException(status_code=404, detail="Unknown job.")
+        return job.view()
+
+    @app.post("/api/stop/{job_id}")
+    def api_stop(job_id: str) -> dict:
+        job = stop_job(job_id)
+        if job is None:
+            raise HTTPException(status_code=404, detail="Unknown job.")
+        return job.view()
+
     @app.post("/api/render/{check_id}")
-    def api_render(check_id: str, size: int = 0) -> dict:
+    def api_render(check_id: str, size: int = 0, wait: bool = False) -> dict:
         try:
-            return run_render(check_id, size)
+            return run_render(check_id, size) if wait else {"job": start_render(check_id, size).id}
         except KeyError:
             raise HTTPException(status_code=404, detail=f"Unknown check id (the server keeps the last {KEEP_REPORTS} checks in memory).")
         except IndexError:

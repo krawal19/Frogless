@@ -14,6 +14,9 @@ function Icon({ name, size = 20 }) {
     chevron: <><path d="M6 8l4 4 4-4" /></>,
     image: <><rect x="3" y="4" width="14" height="12" rx="2" /><path d="M3 13l4-4 4 4 2-2 4 4" /></>,
     close: <><path d="M5 5l10 10M15 5L5 15" /></>,
+    sun: <><circle cx="10" cy="10" r="3.4" /><path d="M10 2.5v2M10 15.5v2M2.5 10h2M15.5 10h2M4.7 4.7l1.4 1.4M13.9 13.9l1.4 1.4M4.7 15.3l1.4-1.4M13.9 6.1l1.4-1.4" /></>,
+    moon: <><path d="M16.5 11.6A6.8 6.8 0 018.4 3.5a6.8 6.8 0 108.1 8.1z" /></>,
+    stop: <><rect x="5" y="5" width="10" height="10" rx="2" /></>,
     expand: <><path d="M12 4h4v4M8 16H4v-4M16 4l-5 5M4 16l5-5" /></>,
   };
   return (
@@ -278,21 +281,28 @@ function ChartBox({ images, loading, view, onZoom }) {
   );
 }
 
-// panes: [{ label, images }]; one pane when nothing was corrected, two (original | corrected) otherwise. One shared toggle.
+// panes: [{ label, images }]; one pane when nothing was corrected, two (original | corrected) otherwise. One shared toggle,
+// on the same line as the column headings.
 function Picture({ panes, loading, onZoom }) {
   const [view, setView] = useState("symbols");
   const options = [{ value: "symbols", label: "Chart" }, { value: "sketch", label: "Sketch" }];
   if (panes.some((p) => p.images && p.images.view_3d)) options.push({ value: "view_3d", label: "3D" });
+  const tabs = <Segmented options={options} value={view} onChange={setView} label="Picture view" />;
+  const two = panes.length > 1;
   return (
     <div className="chart">
-      <div className="chart-bar">
-        <span className="chart-title">View</span>
-        <Segmented options={options} value={view} onChange={setView} label="Picture view" />
+      <div className={`chart-cols chart-heads n${panes.length}`}>
+        {panes.map((p, i) => (
+          <div key={i} className="chart-head">
+            <h3>{p.label}</h3>
+            {i === panes.length - 1 && tabs}
+          </div>
+        ))}
       </div>
+      {two && <p className="chart-hint">Small fixes may look almost the same in the pictures; the changes are listed above.</p>}
       <div className={`chart-cols n${panes.length}`}>
         {panes.map((p, i) => (
           <div key={i} className="chart-col">
-            <h3>{p.label}</h3>
             <ChartBox images={p.images} loading={loading} view={view} onZoom={onZoom} />
             {p.images && p.images.note && !loading && <p className="chart-note">{p.images.note}</p>}
           </div>

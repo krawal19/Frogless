@@ -14,18 +14,44 @@ function useElapsed(running) {
   return s;
 }
 
+const THEME_KEY = "frogless-theme";
+function currentTheme() {
+  const set = document.documentElement.getAttribute("data-theme");
+  if (set === "dark" || set === "light") return set;
+  return window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+}
+
+function ThemeToggle() {
+  const [theme, setTheme] = useState(currentTheme);
+  const flip = () => {
+    const next = theme === "dark" ? "light" : "dark";
+    document.documentElement.setAttribute("data-theme", next);
+    try { localStorage.setItem(THEME_KEY, next); } catch (e) { /* storage may be blocked */ }
+    setTheme(next);
+  };
+  const label = theme === "dark" ? "Switch to light mode" : "Switch to dark mode";
+  return (
+    <button type="button" className="theme-toggle" onClick={flip} aria-label={label} title={label}>
+      <Icon name={theme === "dark" ? "sun" : "moon"} size={20} />
+    </button>
+  );
+}
+
 function Header() {
   return (
     <header className="masthead">
       <div className="masthead-inner">
-        <Logo />
-        <p>Know if a crochet pattern works before you pick up your hook</p>
+        <div className="brand">
+          <Logo />
+          <p>Know if a crochet pattern works before you pick up your hook</p>
+        </div>
+        <ThemeToggle />
       </div>
     </header>
   );
 }
 
-function InputCard({ text, setText, terms, setTerms, examples, onPick, onCheck, busy }) {
+function InputCard({ text, setText, terms, setTerms, examples, onPick, onCheck, onStop, busy, running }) {
   const groups = { dev: "Development patterns", smoke: "Smoke tests" };
   const onKey = (e) => { if ((e.ctrlKey || e.metaKey) && e.key === "Enter") onCheck(); };
   return (
@@ -33,7 +59,7 @@ function InputCard({ text, setText, terms, setTerms, examples, onPick, onCheck, 
       <h2 className="panel-title"><label htmlFor="pattern">Your pattern</label></h2>
       <textarea id="pattern" value={text} onChange={(e) => setText(e.target.value)} onKeyDown={onKey}
                 spellCheck={false} rows={9}
-                placeholder={"Round 1: 6 sc in a magic ring (6)\nRound 2: 2 sc in each st around (12)\nRound 3: *sc, 2 sc in next st* around (18)"} />
+                placeholder="Paste a pattern and press Check" />
       <div className="controls">
         <div className="ctl">
           <label htmlFor="examples" className="field-label">Examples</label>
@@ -57,9 +83,11 @@ function InputCard({ text, setText, terms, setTerms, examples, onPick, onCheck, 
           <Segmented label="Terms" value={terms} onChange={setTerms}
                      options={[{ value: "auto", label: "Auto" }, { value: "US", label: "US" }, { value: "UK", label: "UK" }]} />
         </div>
-        <div className="spacer" />
         <button type="button" className="primary" onClick={onCheck} disabled={busy || !text.trim()}>
           {busy ? <><span className="spinner light" />Checking…</> : "Check pattern"}
+        </button>
+        <button type="button" className="stop" onClick={onStop} disabled={!running}>
+          <Icon name="stop" size={16} />Stop
         </button>
       </div>
     </section>
@@ -69,20 +97,47 @@ function InputCard({ text, setText, terms, setTerms, examples, onPick, onCheck, 
 function Panel({ title, sub, children, className = "" }) {
   return (
     <section className={`card pane ${className}`}>
-      <header className="pane-head"><h2>{title}</h2>{sub && <span>{sub}</span>}</header>
+      {title && <header className="pane-head"><h2>{title}</h2>{sub && <span>{sub}</span>}</header>}
       {children}
     </section>
   );
 }
 
-function ResultCard({ busy, elapsed, error, result, sizesTabs }) {
-  let body;
+const STATUS_LINES = [
+  "Counting every stitch twice…", "Untangling round 3…", "Asking the hook nicely…",
+  "Checking the turning chains didn't sneak off…", "Frogging nothing (yet)…", "Weaving in loose ends…",
+  "Measuring gauge with a very serious face…", "Fluffing the yarn…", "Whispering to the stitch markers…",
+  "Making sure no stitch is hiding in the magic ring…", "Teaching the skein to behave…", "Tallying increases and decreases…",
+  "Counting loops on the hook (just one, hopefully)…", "Brewing tea while the rows add up…",
+];
+
+function Checking({ elapsed }) {
+  const [i, setI] = useState(() => Math.floor(Math.random() * STATUS_LINES.length));
+  useEffect(() => {
+    const t = setInterval(() => setI((n) => (n + 1) % STATUS_LINES.length), 2500);
+    return () => clearInterval(t);
+  }, []);
+  return (
+    <div className="checking" role="status">
+      <h3 className="checking-title">Checks can take a few minutes</h3>
+      <div className="checking-body">
+        <div className="lines" aria-hidden="true"><i /><i /><i /></div>
+        <p className="status-line" key={i}>{STATUS_LINES[i]}</p>
+      </div>
+      <span className="elapsed mono">{elapsed} s</span>
+    </div>
+  );
+}
+
+function ResultCard({ busy, elapsed, error, result, sizesTabs, stopped }) {
+  let body, empty = false;
   if (busy) {
+    body = <Checking elapsed={elapsed} />;
+  } else if (stopped) {
     body = (
-      <div className="progress" role="status">
-        <span className="bar"><i /></span>
-        <span>Checking… <b>{STAGES.join(" → ")}</b></span>
-        <span className="elapsed mono">{elapsed} s</span>
+      <div className="verdict unreadable" role="status">
+        <span className="verdict-icon"><Icon name="stop" size={28} /></span>
+        <div><div className="verdict-label">Stopped</div><p className="verdict-msg">Stopped. Nothing was changed.</p></div>
       </div>
     );
   } else if (error) {
@@ -95,9 +150,15 @@ function ResultCard({ busy, elapsed, error, result, sizesTabs }) {
   } else if (result) {
     body = <Verdict result={result} />;
   } else {
-    body = <div className="empty-art"><img src="img/swatch.webp" alt="A crochet hook beside stitch symbols and crocheted rows" /><p>Paste a pattern and press Check</p></div>;
+    empty = true;
+    body = (
+      <div className="empty-art">
+        <img src="img/swatch.webp" alt="A crochet hook beside stitch symbols and crocheted rows" />
+        <p>Verified results will show up here</p>
+      </div>
+    );
   }
-  return <Panel title="Result" className="result-card">{sizesTabs}{body}</Panel>;
+  return <Panel title="Result" className={`result-card${empty ? " is-empty" : ""}`}>{sizesTabs}{body}</Panel>;
 }
 
 function App() {
@@ -110,17 +171,22 @@ function App() {
   const [size, setSize] = useState(0);
   const [drawn, setDrawn] = useState({});       // size -> { state: "loading" | "done" | "failed", ...render answer }
   const [zoom, setZoom] = useState(null);
+  const [stopped, setStopped] = useState(false);
+  const jobs = useRef(new Set());   // ids of the running server jobs
+  const run = useRef(0);            // bumped on every new check and on Stop, so answers of an older run are dropped
   const elapsed = useElapsed(busy);
   const resultsRef = useRef(null);
   const dev = new URLSearchParams(window.location.search).get("dev") === "1";
 
   useEffect(() => { Api.examples().then((r) => setExamples(r.examples || [])).catch(() => {}); }, []);
 
-  const draw = (id, index) => {
+  const track = (id) => jobs.current.add(id);
+
+  const draw = (id, index, mine) => {
     setDrawn((d) => ({ ...d, [index]: { state: "loading" } }));
-    Api.render(id, index)
-      .then((r) => setDrawn((d) => ({ ...d, [index]: { state: "done", ...r } })))
-      .catch((e) => setDrawn((d) => ({ ...d, [index]: { state: "failed", error: e.message } })));
+    Api.render(id, index, track)
+      .then((r) => { if (run.current === mine && r) setDrawn((d) => ({ ...d, [index]: { state: "done", ...r } })); })
+      .catch((e) => { if (run.current === mine) setDrawn((d) => ({ ...d, [index]: { state: "failed", error: e.message } })); });
   };
 
   const onPick = (value) => {
@@ -129,21 +195,32 @@ function App() {
 
   const onCheck = async () => {
     if (busy || !text.trim()) return;
-    setBusy(true); setError(""); setData(null); setDrawn({}); setSize(0);
+    const mine = ++run.current;
+    jobs.current = new Set();
+    setBusy(true); setError(""); setStopped(false); setData(null); setDrawn({}); setSize(0);
     try {
-      const r = await Api.check(text, terms);
+      const r = await Api.check(text, terms, track);
+      if (run.current !== mine || !r) return;
       setData(r);
-      draw(r.id, 0);
+      draw(r.id, 0, mine);
     } catch (e) {
-      setError(e.message);
+      if (run.current === mine) setError(e.message);
     } finally {
-      setBusy(false);
+      if (run.current === mine) setBusy(false);
     }
+  };
+
+  const onStop = () => {
+    run.current += 1;
+    const ids = [...jobs.current];
+    jobs.current = new Set();
+    ids.forEach((id) => Api.stop(id).catch(() => {}));
+    setBusy(false); setError(""); setData(null); setDrawn({}); setSize(0); setStopped(true);
   };
 
   const pickSize = (i) => {
     setSize(i);
-    if (data && !drawn[i]) draw(data.id, i);
+    if (data && !drawn[i]) draw(data.id, i, run.current);
   };
 
   const result = data && data.results[size];
@@ -152,6 +229,8 @@ function App() {
   const failed = render && render.state === "failed" ? { error: render.error } : null;
   const done = render && render.state === "done";
   const fixed = result && result.corrected_status === "fixed";
+  const drawing = Object.values(drawn).some((d) => d.state === "loading");
+  const running = busy || drawing;
 
   const sizesTabs = data && data.sizes > 1 && (
     <div className="sizes" role="tablist" aria-label="Sizes">
@@ -169,18 +248,18 @@ function App() {
       <main className="page">
         <div className="top">
           <InputCard text={text} setText={setText} terms={terms} setTerms={setTerms} examples={examples}
-                     onPick={onPick} onCheck={onCheck} busy={busy} />
-          <ResultCard busy={busy} elapsed={elapsed} error={error} result={result} sizesTabs={sizesTabs} />
+                     onPick={onPick} onCheck={onCheck} onStop={onStop} busy={busy} running={running} />
+          <ResultCard busy={busy} elapsed={elapsed} error={error} result={result} sizesTabs={sizesTabs} stopped={stopped} />
         </div>
 
         {result && (
           <div ref={resultsRef} className="results">
             {fixed && (
-              <Panel title="Your pattern | Frogless corrected" sub="changed text is highlighted on both sides">
+              <Panel title="Your pattern vs Frogless corrected" sub="changed text is highlighted on both sides">
                 <Compare written={result.written_lines} corrected={result.corrected_lines} rebuilt={result.corrected_source === "rebuilt"} />
               </Panel>
             )}
-            <Panel title="Picture" sub={fixed ? "original and corrected, side by side" : "of the pattern as written"}>
+            <Panel className="pictures">
               <Picture key={`p${size}${fixed}`} loading={loading} onZoom={setZoom}
                        panes={fixed ? [{ label: "Your pattern", images: done ? render.written : failed },
                                        { label: "Frogless corrected", images: done ? render.corrected : failed }]

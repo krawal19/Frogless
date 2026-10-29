@@ -230,8 +230,12 @@ button.stop:disabled { opacity: .4; cursor: default; }
 .fixes li::before { content: ""; position: absolute; left: 4px; top: .65em; width: 7px; height: 7px; border-radius: 50%; background: var(--accent); }
 .fix-reads { display: block; padding: 8px 12px; border-radius: 8px; background: var(--surface-2); border: 1px solid var(--line); font-size: 13.5px; line-height: 1.55; white-space: pre-wrap; }
 .fix-footer { display: flex; gap: 8px; align-items: flex-start; font-size: 14px; font-weight: 600; color: var(--works-strong); }
-.notes li { display: flex; align-items: flex-start; gap: 8px; color: var(--ink-2); }
-.all-good { color: var(--ink-2); font-size: 15px; }
+.note-blocks { display: grid; gap: 12px; }
+.note-title { font-weight: 700; font-size: 15px; }
+.note-body { font-size: 15px; color: var(--ink); margin-top: 2px; }
+.note-block.red .note-title { color: var(--breaks-strong); }
+.note-block.yellow .note-title { color: var(--amb-strong); }
+.note-block.green .note-title { color: var(--works-strong); }
 
 /* ---------- panes ---------- */
 .pane { padding: 18px 20px 20px; display: grid; gap: 14px; min-width: 0; }

@@ -272,3 +272,21 @@ def test_stop_really_ends_a_worker_process(monkeypatch):
 def test_waiting_check_still_works_for_other_callers(monkeypatch):
     body = _client(monkeypatch).post("/api/check?wait=1", json={"text": TEXT}).json()
     assert body["verdict"]["kind"] == "breaks" and "job" not in body
+
+
+def test_terms_notes_warn_when_the_choice_cannot_be_confirmed():
+    from types import SimpleNamespace
+
+    from frogless.patterns.terms import Terms
+    from frogless.web.api import _terms_blocks
+
+    def blocks(text, chosen):
+        out = []
+        _terms_blocks(SimpleNamespace(text=text, terms=Terms(chosen, ["chosen by you"])),
+                      lambda t, b, tone: out.append((t, tone)))
+        return out
+
+    assert blocks("Round 1: ch 3, 11 dc in ring (12)\nRound 2: 2 dc in each st (24)", "US") == [("Terms not stated", "yellow")]
+    assert blocks("Row 1: htr in each st across (12)", "US") == [("Looks like UK terms", "yellow")]
+    assert blocks("Round 1: 6 sc in magic ring (6)", "US") == []
+    assert blocks("Round 1: 6 sc in magic ring (6)", "UK") == [("Looks like US terms", "yellow")]

@@ -81,7 +81,7 @@ function InputCard({ text, setText, terms, setTerms, examples, onPick, onCheck, 
         <div className="ctl">
           <span className="field-label">Terms</span>
           <Segmented label="Terms" value={terms} onChange={setTerms}
-                     options={[{ value: "auto", label: "Auto" }, { value: "US", label: "US" }, { value: "UK", label: "UK" }]} />
+                     options={[{ value: "US", label: "US" }, { value: "UK", label: "UK" }]} />
         </div>
         <button type="button" className="primary" onClick={onCheck} disabled={busy || !text.trim()}>
           {busy ? <><span className="spinner light" />Checking…</> : "Check pattern"}
@@ -163,7 +163,7 @@ function ResultCard({ busy, elapsed, error, result, sizesTabs, stopped }) {
 
 function App() {
   const [text, setText] = useState("");
-  const [terms, setTerms] = useState("auto");
+  const [terms, setTerms] = useState("US");
   const [examples, setExamples] = useState([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");

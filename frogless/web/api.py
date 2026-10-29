@@ -27,6 +27,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+from ..patterns.terms import detect_terms
 from ..pipeline import check as pipeline_check
 from ..pipeline import messages, output
 
@@ -148,6 +149,54 @@ def _corrected_status(report) -> str:
     return "none_needed" if v and VERDICT_GROUP.get(v.kind) == "works" else "no_fix"
 
 
+def _terms_blocks(report, add) -> None:
+    """The person chooses US or UK; still warn when the pattern can't confirm that choice or points the other way."""
+    chosen = report.terms.kind if report.terms else "US"
+    if chosen not in ("US", "UK"):
+        return
+    other = "UK" if chosen == "US" else "US"
+    found = detect_terms(report.text)
+    if found.kind == "unknown" and found.ambiguous:
+        add("Terms not stated",
+            f"This pattern doesn't say US or UK and only uses ch, dc and tr, so it could be either. It was checked "
+            f"as {chosen} terms. If it's a {other} pattern, switch to {other} and check again.", "yellow")
+    elif found.kind == other:
+        why = ", ".join(found.evidence) or f"{other} stitch names"
+        add(f"Looks like {other} terms",
+            f"This pattern {why}, which suggests {other} terms, but it was checked as {chosen}. "
+            f"Switch to {other} and check again.", "yellow")
+
+
+def _note_blocks(report) -> list[dict]:
+    """The notes under the verdict as {title, body, tone}; tone is red (problem), yellow (check this) or green (good news)."""
+    v = report.verdict
+    out: list[dict] = []
+
+    def add(title: str, body: str, tone: str) -> None:
+        out.append({"title": title, "body": body, "tone": tone})
+
+    for n in report.notes:
+        if n.startswith("Read as UK terms"):
+            m = re.search(r"\((.*)\)", n)
+            add("Read as UK terms", f"Converted to US ({m.group(1)})." if m else "Converted to US.", "green")
+        else:
+            add("Note", n, "yellow")
+    _terms_blocks(report, add)
+    if v:
+        if v.reading == messages.TURN_COUNTS:
+            add("Only if the turning chain counts", messages.TURN_NOTE, "yellow")
+        if v.chains_left_out:
+            add("Check the chain counting", messages.CHAINS_NOTE, "yellow")
+        if v.kind == "works_counts_only":
+            add("Checked by count only", f"{messages._rows(messages._word(report), v.counted)} can't be drawn stitch by stitch.", "yellow")
+        status = _corrected_status(report)
+        if status == "none_needed":
+            add("Every row checks out", "No corrections needed.", "green")
+        elif status == "no_fix" and v.kind == "breaks":
+            add("No fix found", "Frogless couldn't find a correction that passes its checks.", "red")
+    return out
+
+
 def describe(report, label: str = "") -> dict:
     """Everything the page shows about one checked pattern, as plain JSON-ready data."""
     v = report.verdict
@@ -163,6 +212,7 @@ def describe(report, label: str = "") -> dict:
         "user_message": messages.user_message(report),
         "fix_lines": messages.fix_lines(report),
         "notes": list(report.notes),
+        "note_blocks": _note_blocks(report),
         "shape_lines": messages.shape_lines(report),
         "rows": table,
         "terms": report.terms.kind if report.terms else None,

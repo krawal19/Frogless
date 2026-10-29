@@ -58,6 +58,19 @@ function splitMessage(message) {
   return { main: main || (extra.shift() || ""), extra };
 }
 
+const SYMBOLS = /[✅⚠❌❓ⓘℹ]️?\s*/gu;
+const stripSymbols = (s) => (s || "").replace(SYMBOLS, "").trim();
+
+// a note block: bold colored heading (red = problem, yellow = check this, green = good news) and the text below
+function NoteBlock({ title, body, tone }) {
+  return (
+    <div className={`note-block ${tone}`}>
+      <div className="note-title">{title}</div>
+      <p className="note-body">{body}</p>
+    </div>
+  );
+}
+
 // Pair each "Suggested fix ..." line with the indented "... would read" line that follows it.
 function groupFixes(lines) {
   const fixes = []; let footer = "";
@@ -74,8 +87,10 @@ function Verdict({ result }) {
   const { fixes, footer } = groupFixes(result.fix_lines);
   // the fixes are listed under "What we corrected", so the headline stops before them
   const headline = fixes.length ? (result.user_message || "").replace(/\s*Suggested fix[\s\S]*$/, "") : result.user_message;
-  const { main, extra } = splitMessage(headline);
-  const notes = [...extra, ...(result.notes || [])];
+  let { main } = splitMessage(headline);
+  // a pattern that works with only notes: the notes are drawn as blocks below, so the headline stays short
+  if (result.verdict.group === "works" && !/^(Works|Stitch|This pattern)/.test(main)) main = "Stitch counts check out.";
+  const blocks = result.note_blocks || [];
   return (
     <div className="result-body">
       <div className={`verdict ${style}`} aria-live="polite" role="status">
@@ -85,10 +100,10 @@ function Verdict({ result }) {
           <p className="verdict-msg">{main}</p>
         </div>
       </div>
-      {notes.length > 0 && (
-        <ul className="notes">
-          {notes.map((n, i) => <li key={i}><Icon name="note" size={16} />{n}</li>)}
-        </ul>
+      {blocks.length > 0 && (
+        <div className="note-blocks">
+          {blocks.map((b, i) => <NoteBlock key={i} {...b} />)}
+        </div>
       )}
       {fixes.length > 0 ? (
         <section className="sub">
@@ -96,18 +111,14 @@ function Verdict({ result }) {
           <ul className="fixes">
             {fixes.map((f, i) => (
               <li key={i}>
-                <span className="fix-title">{f.title}</span>
-                {f.reads && <code className="fix-reads">{f.reads}</code>}
+                <span className="fix-title">{stripSymbols(f.title)}</span>
+                {f.reads && <code className="fix-reads">{stripSymbols(f.reads)}</code>}
               </li>
             ))}
           </ul>
-          {footer && <p className="fix-footer"><Icon name="fix" size={16} />{footer}</p>}
+          {footer && <p className="fix-footer">{stripSymbols(footer)}</p>}
         </section>
-      ) : (
-        <p className="all-good">{result.corrected_status === "none_needed"
-          ? "Every row checks out as written."
-          : "No re-checked fix was found, so there is nothing to show as corrected."}</p>
-      )}
+      ) : null}
       {result.corrected_status === "fixed" && (
         <section className="sub">
           <h3>The corrected pattern</h3>

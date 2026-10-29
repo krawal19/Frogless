@@ -70,7 +70,8 @@ def _table(report) -> list[dict]:
     for row in report.rows:
         if row.synthetic:
             table.append({"number": None, "text": "(added: magic ring)", "translated_by": "added",
-                          "read_back": row.english, "stated": None, "computed": None, "status": "added", "note": row.note})
+                          "read_back": row.english, "stated": None, "computed": None, "status": "added", "note": row.note,
+                          "double_checked": False})
             continue
         number = n + offset
         n += 1
@@ -89,7 +90,8 @@ def _table(report) -> list[dict]:
         notes = [x for x in (row.note, row.ledger_note, f"read as: {row.reading}" if row.reading else "") if x]
         table.append({"number": number, "text": _LABEL_TEXT.sub("", row.source.strip(), count=1).strip() or row.source.strip(),
                       "translated_by": by, "read_back": row.english, "stated": report.stated.get(number),
-                      "computed": report.computed.get(number), "status": status, "note": "; ".join(notes)})
+                      "computed": report.computed.get(number), "status": status, "note": "; ".join(notes),
+                      "double_checked": row.faithful is True or row.ledger_ok is not None})
     return table
 
 

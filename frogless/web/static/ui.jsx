@@ -71,39 +71,54 @@ function groupFixes(lines) {
   return { fixes, footer };
 }
 
-function Banner({ result }) {
+function Verdict({ result }) {
   const style = verdictStyle(result);
   const { fixes, footer } = groupFixes(result.fix_lines);
-  // the fixes are listed below, so the headline stops before them
+  // the fixes are listed under "What we corrected", so the headline stops before them
   const headline = fixes.length ? (result.user_message || "").replace(/\s*Suggested fix[\s\S]*$/, "") : result.user_message;
   const { main, extra } = splitMessage(headline);
   const notes = [...extra, ...(result.notes || [])];
   return (
-    <section className={`banner ${style}`} aria-live="polite" role="status">
-      <div className="banner-head">
-        <span className="banner-icon"><Icon name={style} size={32} /></span>
-        <div className="banner-text">
-          <div className="banner-label">{VERDICT_LABEL[style]}</div>
-          <p className="banner-msg">{main}</p>
+    <div className="result-body">
+      <div className={`verdict ${style}`} aria-live="polite" role="status">
+        <span className="verdict-icon"><Icon name={style} size={30} /></span>
+        <div>
+          <div className="verdict-label">{VERDICT_LABEL[style]}</div>
+          <p className="verdict-msg">{main}</p>
         </div>
       </div>
-      {fixes.length > 0 && (
-        <ul className="fixes">
-          {fixes.map((f, i) => (
-            <li key={i}>
-              <span className="fix-title">{f.title}</span>
-              {f.reads && <code className="fix-reads">{f.reads}</code>}
-            </li>
-          ))}
-          {footer && <li className="fix-footer"><Icon name="fix" size={16} />{footer}</li>}
-        </ul>
-      )}
       {notes.length > 0 && (
         <ul className="notes">
           {notes.map((n, i) => <li key={i}><Icon name="note" size={16} />{n}</li>)}
         </ul>
       )}
-    </section>
+      {fixes.length > 0 ? (
+        <section className="sub">
+          <h3>What we corrected</h3>
+          <ul className="fixes">
+            {fixes.map((f, i) => (
+              <li key={i}>
+                <span className="fix-title">{f.title}</span>
+                {f.reads && <code className="fix-reads">{f.reads}</code>}
+              </li>
+            ))}
+          </ul>
+          {footer && <p className="fix-footer"><Icon name="fix" size={16} />{footer}</p>}
+        </section>
+      ) : (
+        <p className="all-good">{result.corrected_status === "none_needed"
+          ? "Every row checks out as written."
+          : "No re-checked fix was found, so there is nothing to show as corrected."}</p>
+      )}
+      {result.corrected_status === "fixed" && (
+        <section className="sub">
+          <h3>The corrected pattern</h3>
+          <PatternLines lines={result.corrected_lines} />
+          {result.corrected_source === "rebuilt" &&
+            <p className="source-note">Rebuilt from how Frogless read each row, with the fix applied.</p>}
+        </section>
+      )}
+    </div>
   );
 }
 
@@ -126,6 +141,107 @@ function PatternLines({ lines }) {
   );
 }
 
+// ---------- As written | Corrected ----------
+const FIX_TAIL = /\s*\[(?:suggested fix|works if|added)[\s\S]*$/i;
+
+function lcsPairs(a, b) {
+  const n = a.length, m = b.length;
+  const t = Array.from({ length: n + 1 }, () => new Array(m + 1).fill(0));
+  for (let i = n - 1; i >= 0; i--) for (let j = m - 1; j >= 0; j--)
+    t[i][j] = a[i] === b[j] ? t[i + 1][j + 1] + 1 : Math.max(t[i + 1][j], t[i][j + 1]);
+  const out = []; let i = 0, j = 0;
+  while (i < n && j < m) {
+    if (a[i] === b[j]) { out.push([i, j]); i++; j++; }
+    else if (t[i + 1][j] >= t[i][j + 1]) i++; else j++;
+  }
+  return out;
+}
+
+// word-level diff of one changed row -> [leftParts, rightParts], each [{ t, hit }]
+function wordDiff(a, b) {
+  const x = a.split(/(\s+)/).filter(Boolean), y = b.split(/(\s+)/).filter(Boolean);
+  const pairs = lcsPairs(x, y);
+  const left = [], right = []; let i = 0, j = 0;
+  const flush = (ei, ej) => {
+    if (i < ei) left.push({ t: x.slice(i, ei).join(""), hit: true });
+    if (j < ej) right.push({ t: y.slice(j, ej).join(""), hit: true });
+  };
+  pairs.forEach(([pi, pj]) => { flush(pi, pj); left.push({ t: x[pi] }); right.push({ t: y[pj] }); i = pi + 1; j = pj + 1; });
+  flush(x.length, y.length);
+  return [left, right];
+}
+
+function alignRows(written, corrected) {
+  const norm = (l) => l.text.replace(FIX_TAIL, "").trim().replace(/\s+/g, " ");
+  const tagOf = (l) => { const m = l.text.match(FIX_TAIL); return m ? m[0].trim().replace(/^\[|\]$/g, "") : ""; };
+  const w = written.map(norm), c = corrected.map(norm);
+  const rows = []; let i = 0, j = 0;
+  const gap = (ei, ej) => {
+    while (i < ei || j < ej) {
+      const hasW = i < ei, hasC = j < ej;
+      if (hasW && hasC) {
+        const [l, r] = wordDiff(w[i], c[j]);
+        rows.push({ kind: "changed", left: l, right: r, ln: i + 1, rn: j + 1 }); i++; j++;
+      } else if (hasW) { rows.push({ kind: "removed", left: [{ t: w[i], hit: true }], ln: i + 1 }); i++; }
+      else { rows.push({ kind: "added", right: [{ t: c[j], hit: true }], rn: j + 1 }); j++; }
+    }
+  };
+  lcsPairs(w, c).forEach(([pi, pj]) => {
+    gap(pi, pj);
+    rows.push({ kind: "same", left: [{ t: w[pi] }], right: [{ t: c[pj] }], ln: pi + 1, rn: pj + 1 }); i = pi + 1; j = pj + 1;
+  });
+  gap(w.length, c.length);
+  return rows;
+}
+
+// A rebuilt pattern is worded differently from the written one, so rows are paired by their number and only
+// the rows a fix touched are highlighted (as a whole).
+function alignByNumber(written, corrected) {
+  const num = (t) => { const m = t.match(/^\s*(?:rows?|rounds?|rnds?|r)\s*(\d+)/i); return m ? Number(m[1]) : null; };
+  const used = new Set(); const rows = [];
+  const cs = corrected.filter((l) => !/^\s*note:/i.test(l.text));
+  written.forEach((l, i) => {
+    const n = num(l.text);
+    const j = n == null ? -1 : cs.findIndex((c, k) => !used.has(k) && num(c.text) === n);
+    const left = l.text.trim().replace(/\s+/g, " ");
+    if (j < 0) { rows.push({ kind: "same", left: [{ t: left }], right: [], ln: i + 1 }); return; }
+    used.add(j);
+    const c = cs[j], right = c.text.replace(FIX_TAIL, "").trim();
+    const fixedRow = FIX_TAIL.test(c.text);
+    rows.push({ kind: fixedRow ? "changed" : "same", ln: i + 1, rn: j + 1,
+                left: [{ t: left, hit: fixedRow }], right: [{ t: right, hit: fixedRow }] });
+  });
+  cs.forEach((c, j) => { if (!used.has(j)) rows.push({ kind: FIX_TAIL.test(c.text) ? "added" : "extra", right: [{ t: c.text.replace(FIX_TAIL, "").trim(), hit: FIX_TAIL.test(c.text) }], rn: j + 1 }); });
+  return rows;
+}
+
+function Parts({ parts, cls }) {
+  return <>{(parts || []).map((p, i) => p.hit ? <mark key={i} className={cls}>{p.t}</mark> : <span key={i}>{p.t}</span>)}</>;
+}
+
+function Compare({ written, corrected, rebuilt }) {
+  const rows = (rebuilt ? alignByNumber : alignRows)(written.filter((l) => l.text.trim()), corrected.filter((l) => l.text.trim()));
+  return (
+    <div className="cmp" role="table" aria-label="As written compared with corrected">
+      <div className="cmp-head" role="row"><h3 role="columnheader">As written</h3><h3 role="columnheader">Corrected</h3></div>
+      {rows.map((r, k) => (
+        <div key={k} className={`cmp-row ${r.kind}`} role="row">
+          <div className="cmp-cell left" role="cell">
+            {r.ln && <span className="pl-no" aria-hidden="true">{r.ln}</span>}
+            <span className="pl-text"><Parts parts={r.left} cls="del" /></span>
+            {r.kind === "removed" && <span className="tag gone">removed</span>}
+          </div>
+          <div className="cmp-cell right" role="cell">
+            {r.rn && <span className="pl-no" aria-hidden="true">{r.rn}</span>}
+            <span className="pl-text"><Parts parts={r.right} cls="ins" /></span>
+            {r.kind === "added" && <span className="tag add">added row</span>}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 // ---------- charts ----------
 function Segmented({ options, value, onChange, label }) {
   return (
@@ -138,37 +254,49 @@ function Segmented({ options, value, onChange, label }) {
   );
 }
 
-function ChartPane({ images, loading, onZoom }) {
-  const [view, setView] = useState("symbols");
-  const options = [{ value: "symbols", label: "Chart" }, { value: "sketch", label: "Sketch" }];
-  if (images && images.view_3d) options.push({ value: "view_3d", label: "3D" });
+function ChartBox({ images, loading, view, onZoom }) {
   const src = images && images[view];
-  let body;
-  if (loading) {
-    body = <div className="chart-empty loading"><span className="spinner" /><span>Drawing the chart…</span></div>;
-  } else if (images && src) {
-    body = (
-      <button type="button" className="chart-img" onClick={() => onZoom(src)} title="Enlarge">
-        <img src={src} alt={view === "symbols" ? "Stitch chart" : view === "sketch" ? "Sketch of the piece" : "3D view"} />
-        <span className="zoom"><Icon name="expand" size={16} /></span>
-      </button>
-    );
-  } else {
-    body = (
-      <div className="chart-empty">
-        <Icon name="image" size={26} />
-        <span>{(images && images.error) ? `The chart could not be drawn: ${images.error}` : "No picture for this view."}</span>
+  if (loading) return <div className="chart-box"><div className="chart-empty loading"><span className="spinner" /><span>Drawing the chart…</span></div></div>;
+  if (images && src) {
+    return (
+      <div className="chart-box">
+        <button type="button" className="chart-img" onClick={() => onZoom(src)} title="Enlarge">
+          <img src={src} alt={view === "symbols" ? "Stitch chart" : view === "sketch" ? "Sketch of the piece" : "3D view"} />
+          <span className="zoom"><Icon name="expand" size={16} /></span>
+        </button>
       </div>
     );
   }
   return (
+    <div className="chart-box">
+      <div className="chart-empty">
+        <Icon name="image" size={26} />
+        <span>{(images && images.error) ? `The chart could not be drawn: ${images.error}` : "No picture for this view."}</span>
+      </div>
+    </div>
+  );
+}
+
+// panes: [{ label, images }]; one pane when nothing was corrected, two (original | corrected) otherwise. One shared toggle.
+function Picture({ panes, loading, onZoom }) {
+  const [view, setView] = useState("symbols");
+  const options = [{ value: "symbols", label: "Chart" }, { value: "sketch", label: "Sketch" }];
+  if (panes.some((p) => p.images && p.images.view_3d)) options.push({ value: "view_3d", label: "3D" });
+  return (
     <div className="chart">
       <div className="chart-bar">
-        <span className="chart-title">Picture</span>
-        <Segmented options={options} value={view} onChange={setView} label="Chart view" />
+        <span className="chart-title">View</span>
+        <Segmented options={options} value={view} onChange={setView} label="Picture view" />
       </div>
-      <div className="chart-box">{body}</div>
-      {images && images.note && !loading && <p className="chart-note">{images.note}</p>}
+      <div className={`chart-cols n${panes.length}`}>
+        {panes.map((p, i) => (
+          <div key={i} className="chart-col">
+            {panes.length > 1 && <h3>{p.label}</h3>}
+            <ChartBox images={p.images} loading={loading} view={view} onZoom={onZoom} />
+            {p.images && p.images.note && !loading && <p className="chart-note">{p.images.note}</p>}
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
@@ -201,14 +329,15 @@ function RowTable({ rows }) {
             <tr key={i} className={r.status === "breaks" ? "is-breaks" : r.status === "added" ? "is-added" : ""}>
               <td className="num mono">{r.number ?? "–"}</td>
               <td className="mono wrap">{r.text}</td>
-              <td><span className={`by by-${byLabel(r.translated_by).toLowerCase()}`}>{byLabel(r.translated_by)}</span></td>
+              <td><span className={`by by-${byLabel(r.translated_by).toLowerCase()}`}>{byLabel(r.translated_by)}</span>
+                {r.double_checked && <span className="dc" title="The reading was turned back into words and compared, or counted a second way">double-checked</span>}</td>
               <td className="wrap">{r.read_back || ""}</td>
               <td className="num mono">{r.stated ?? "–"}</td>
               <td className={`num mono${mismatch(r) ? " mismatch" : ""}`}>
                 {r.computed ?? "–"}{mismatch(r) && <span className="sr"> (does not match)</span>}
               </td>
               <td className="wrap">
-                {r.status !== "ok" && r.status !== "added" && <span className={`status st-${r.status.replace(/\s+/g, "-")}`}>{r.status}</span>}
+                {r.status !== "ok" && r.status !== "added" && <span className={`status st-${r.status.replace(/\s+/g, "-")}`}>{STATUS_WORDS[r.status] || r.status}</span>}
                 {r.note}
               </td>
             </tr>
@@ -219,7 +348,29 @@ function RowTable({ rows }) {
   );
 }
 
-function Timings({ timings, renderSeconds }) {
+const STATUS_WORDS = { "not checked": "Not checked", "check the reading": "Check the reading", "after the break": "After the break", breaks: "Breaks here" };
+
+function HowWeChecked({ result }) {
+  return (
+    <details className="details">
+      <summary><Icon name="chevron" size={18} /><span>How we checked</span>
+        <small>every row, and what we noticed about the shape</small></summary>
+      <div className="details-body">
+        <p className="muted">Each row was read by fixed rules or, when the wording was unusual, by an AI. Where possible the reading was
+          turned back into words and compared with what you wrote (double-checked).</p>
+        <RowTable rows={result.rows} />
+        <h4>Shape hints</h4>
+        {result.shape_lines && result.shape_lines.length
+          ? <ul className="plain">{result.shape_lines.map((l, i) => <li key={i}>{l.trim()}</li>)}</ul>
+          : <p className="muted">No shape hints for this pattern.</p>}
+        {result.terms && <p className="muted">Terms read as {result.terms}.</p>}
+      </div>
+    </details>
+  );
+}
+
+function DevPanel({ result, data, renderSeconds, size }) {
+  const timings = result.timings || {};
   const items = Object.keys(STAGE_NAME).filter((k) => (timings[k] || 0) > 0.005);
   const max = Math.max(0.1, ...items.map((k) => timings[k]), renderSeconds || 0);
   const bar = (name, value, key) => (
@@ -229,44 +380,25 @@ function Timings({ timings, renderSeconds }) {
       <span className="t-val mono">{seconds(value)}</span>
     </div>
   );
+  const facts = [
+    ["Check time", seconds(timings.total)],
+    ["Render time", renderSeconds != null ? seconds(renderSeconds) : "drawing…"],
+    ["Cost of this check", `$${result.cost_usd.toFixed(4)}`],
+    ...(data.sizes > 1 ? [["Cost, all sizes", `$${data.cost_usd.toFixed(4)}`]] : []),
+    ["Check id", data.id], ["Size", `${size + 1} of ${data.sizes}`],
+    ["Verdict kind", `${result.verdict.kind} (row ${result.verdict.row ?? "-"})`],
+    ["Corrected", `${result.corrected_status}${result.corrected_source ? ` (${result.corrected_source})` : ""}`],
+    ["Terms", result.terms || "-"],
+  ];
   return (
-    <div className="timings">
-      {items.map((k) => bar(STAGE_NAME[k], timings[k], k))}
-      {renderSeconds != null && bar("Draw the charts", renderSeconds, "render")}
-      <div className="t-total">
-        <span>Check</span><b className="mono">{seconds(timings.total)}</b>
-        {renderSeconds != null && <><span>Charts</span><b className="mono">{seconds(renderSeconds)}</b></>}
+    <section className="card dev" aria-label="Developer panel">
+      <header className="pane-head"><h2>Developer</h2><span>only shown with ?dev=1</span></header>
+      <div className="dev-grid">
+        <div className="timings">{items.map((k) => bar(STAGE_NAME[k], timings[k], k))}
+          {renderSeconds != null && bar("Draw the pictures", renderSeconds, "render")}</div>
+        <dl className="facts">{facts.map(([k, v]) => <div key={k}><dt>{k}</dt><dd className="mono">{v}</dd></div>)}</dl>
       </div>
-    </div>
-  );
-}
-
-function Details({ result, renderSeconds, totalCost, sizes }) {
-  return (
-    <details className="details">
-      <summary><Icon name="chevron" size={18} /><span>Details</span>
-        <small>row by row, shape hints, timings, cost</small></summary>
-      <div className="details-body">
-        <h4>Row by row</h4>
-        <RowTable rows={result.rows} />
-        <div className="details-grid">
-          <div>
-            <h4>Shape hints</h4>
-            {result.shape_lines && result.shape_lines.length
-              ? <ul className="plain">{result.shape_lines.map((l, i) => <li key={i}>{l.trim()}</li>)}</ul>
-              : <p className="muted">No shape hints for this pattern.</p>}
-            <h4>Cost of this check</h4>
-            <p className="cost mono">${result.cost_usd.toFixed(4)}
-              {sizes > 1 && <span className="muted"> this size · ${totalCost.toFixed(4)} all sizes</span>}</p>
-            {result.terms && <p className="muted">Terms read as {result.terms}.</p>}
-          </div>
-          <div>
-            <h4>Time per stage</h4>
-            <Timings timings={result.timings} renderSeconds={renderSeconds} />
-          </div>
-        </div>
-      </div>
-    </details>
+    </section>
   );
 }
 
@@ -285,4 +417,4 @@ function Lightbox({ src, onClose }) {
   );
 }
 
-Object.assign(window, { Icon, Logo, Banner, PatternLines, ChartPane, Details, Lightbox, Segmented });
+Object.assign(window, { Icon, Logo, Verdict, PatternLines, Compare, Picture, HowWeChecked, DevPanel, Lightbox, Segmented });

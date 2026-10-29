@@ -4,7 +4,7 @@ from fastapi.testclient import TestClient
 
 from frogless.patterns.terms import Terms
 from frogless.pipeline.report import Fix, PatternReport, RowResult, Verdict
-from frogless.web import api, ui
+from frogless.web import api
 
 TEXT = "Round 1: 6 sc in a magic ring (6)\nRound 2: 2 sc in each st around (13)\nRound 3: sc around (13)"
 
@@ -115,17 +115,27 @@ def test_multi_size_gives_one_result_per_size(monkeypatch):
     assert body["cost_usd"] == 0.0246
 
 
-def test_ui_builds_and_html_pieces(monkeypatch):
-    assert ui.build_ui() is not None
-    body = _client(monkeypatch).post("/api/check", json={"text": TEXT}).json()
-    assert "banner breaks" in ui.banner_html(body)
-    assert "pl breaks" in ui.left_html(body) and "pl fix" in ui.right_html(body)
-    assert "No re-checked fix found" in ui.right_html({**body, "corrected_status": "no_fix"})
-    assert "No corrections needed" in ui.right_html({**body, "corrected_status": "none_needed"})
-    images = {"symbols": "/files/x/a.png", "sketch": "/files/x/b.png", "view_3d": None, "error": None, "note": ""}
-    assert "/files/x/b.png" in ui.chart_html(images, "Sketch") and "3D" not in ui.view_choices(images)
-    assert "render charts" in ui.details_html(body, 1.2, 0.0123)
-    assert "<script" not in ui.banner_html({**body, "user_message": "<script>x</script>"})
+def test_page_and_static_files_are_served(monkeypatch):
+    client = _client(monkeypatch)
+    page = client.get("/")
+    assert page.status_code == 200 and "react" in page.text and "app.jsx" in page.text
+    for name in ("styles.css", "api.jsx", "ui.jsx", "app.jsx"):
+        assert client.get(f"/{name}").status_code == 200
+    assert client.get("/api/examples").status_code == 200  # the routes still win over the static mount
+
+
+def test_examples_are_read_at_run_time(monkeypatch, tmp_path):
+    dev, smoke = tmp_path / "dev", tmp_path / "smoke"
+    dev.mkdir(), smoke.mkdir()
+    (dev / "b.txt").write_text("Round 1: sc 6", encoding="utf-8")
+    (dev / "a.txt").write_text("Round 1: sc 12", encoding="utf-8")
+    (dev / "skip.json").write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(api, "EXAMPLE_DIRS", (("dev", dev), ("smoke", smoke), ("gone", tmp_path / "missing")))
+    client = _client(monkeypatch)
+    assert client.get("/api/examples").json()["examples"] == [
+        {"name": "a", "group": "dev", "text": "Round 1: sc 12"}, {"name": "b", "group": "dev", "text": "Round 1: sc 6"}]
+    (smoke / "c.txt").write_text("Row 1: dc 6", encoding="utf-8")  # a file added later shows up on the next call
+    assert [e["name"] for e in client.get("/api/examples").json()["examples"]] == ["a", "b", "c"]
 
 
 def test_fix_that_cannot_be_placed_shows_the_rebuilt_pattern(monkeypatch):
@@ -135,4 +145,3 @@ def test_fix_that_cannot_be_placed_shows_the_rebuilt_pattern(monkeypatch):
     body = client.post("/api/check", json={"text": TEXT}).json()
     assert body["corrected_pattern"] is None and body["corrected_source"] == "rebuilt"
     assert [line["mark"] for line in body["corrected_lines"]] == ["", "fix"]
-    assert "rebuilt" in ui.right_html(body)

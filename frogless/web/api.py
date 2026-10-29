@@ -2,7 +2,9 @@
 
 POST /api/check          check a pattern (every size of a multi-size pattern); returns the verdict, the texts and an id
 POST /api/render/{id}    draw the charts of one size of a checked pattern; returns image URLs
+GET  /api/examples       example patterns, read at run time from external_patterns/dev/ and logs/smoke/
 GET  /files/<id>/...     the drawn images (served from logs/web/)
+GET  /                   the page (static files in frogless/web/static/)
 
 Only the public Frogless API is used: pipeline.check, pipeline.messages and pipeline.output.
 """
@@ -24,6 +26,8 @@ from ..pipeline import messages, output
 
 ROOT = Path(__file__).resolve().parents[2]
 WEB_DIR = ROOT / "logs" / "web"
+STATIC_DIR = Path(__file__).resolve().parent / "static"
+EXAMPLE_DIRS = (("dev", ROOT / "external_patterns" / "dev"), ("smoke", ROOT / "logs" / "smoke"))  # read at run time
 KEEP_REPORTS = 50  # checked patterns kept in memory
 
 STAGES = ("translate", "faithfulness", "reconcile", "ledger", "engine_verdict", "review", "shape", "total")
@@ -217,6 +221,21 @@ def run_render(check_id: str, size: int = 0) -> dict:
             "render_seconds": round(time.perf_counter() - started, 2)}
 
 
+# ---- examples ----
+def list_examples() -> list[dict]:
+    """The example patterns found right now: {name, group, text}. Read from disk on every call, never copied into the repo."""
+    found = []
+    for group, folder in EXAMPLE_DIRS:
+        if not folder.is_dir():
+            continue
+        for path in sorted(folder.glob("*.txt")):
+            try:
+                found.append({"name": path.stem, "group": group, "text": path.read_text(encoding="utf-8")})
+            except OSError:
+                continue
+    return found
+
+
 # ---- the app ----
 def create_api() -> FastAPI:
     app = FastAPI(title="Frogless")
@@ -239,4 +258,10 @@ def create_api() -> FastAPI:
         except IndexError:
             raise HTTPException(status_code=404, detail="No such size.")
 
+    @app.get("/api/examples")
+    def api_examples() -> dict:
+        return {"examples": list_examples()}
+
+    if STATIC_DIR.is_dir():  # last, so it never shadows the routes above
+        app.mount("/", StaticFiles(directory=STATIC_DIR, html=True), name="page")
     return app

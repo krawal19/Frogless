@@ -2,6 +2,7 @@
 
 from frogless.engine import RowInfo, StitchInfo
 from frogless.pipeline.shape import (
+    check_chain_ring_start,
     check_circle_growth,
     check_even_spacing,
     check_flat_rows,
@@ -255,3 +256,52 @@ def test_growth_is_a_warning_only_for_a_flat_piece():
     assert [f.severity for f in flat if f.kind == "cups"] == ["warning"] * 4
     shaped = [f for f in check_shape(cone, from_ring=True, flat=False) if f.kind == "cups"]
     assert len(shaped) == 1 and shaped[0].severity == "info" and "Rounds 2-5" in shaped[0].message
+
+
+# ---- 5/6. stacked increases and chain ring start --------------------------------------------
+
+
+def stacked_rounds(shift):
+    """Round 1 is 6 sc; rounds 2-5 each have 6 increases (sc2inc) after a growing run of sc.
+    `shift` moves where every round's increases sit."""
+    rows_ = [RowInfo(1, 6, {"sc": 6})]
+    for r in range(2, 6):
+        seg = r - 1  # plain sc between increases, so each segment is seg + 1 stitches
+        size = 6 * (seg + 1)
+        spots = {(seg + (r - 2) * shift + (seg + 1) * k) % size for k in range(6)}
+        rows_.append(stitch_row(r, ["sc2inc" if i in spots else "sc" for i in range(size)]))
+    return rows_
+
+
+def test_stacked_increases_hint():
+    hit = [f for f in check_shape(stacked_rounds(0), from_ring=True) if f.kind == "stacked_increases"]
+    assert hit and hit[0].severity == "info" and "hexagon" in hit[0].message
+
+
+def test_staggered_increases_no_hint():
+    assert "stacked_increases" not in kinds(check_shape(stacked_rounds(2), from_ring=True))
+
+
+def test_ball_gets_no_stacked_hint():
+    rows_ = stacked_rounds(0) + [RowInfo(6, 30, {"sc": 30}), RowInfo(7, 24, {"sc": 24})]
+    assert "stacked_increases" not in kinds(check_shape(rows_, from_ring=True))
+
+
+BALL = rounds([6, 12, 18, 18, 12, 6])
+
+
+def test_chain_ring_amigurumi_hint():
+    found = check_shape(BALL, from_ring=True, text="Ch 2, 6 sc in 2nd ch from hook.")
+    assert kinds(found).count("chain_ring_start") == 1
+    assert "chain_ring_start" in kinds(check_shape(rounds([6, 12]), from_ring=True,
+                                                    text="Ch 4, sl st to form a ring. Stuff firmly."))
+
+
+def test_magic_ring_no_chain_ring_hint():
+    assert "chain_ring_start" not in kinds(check_shape(BALL, from_ring=True, text="Magic ring, 6 sc in ring. Stuff."))
+
+
+def test_granny_square_chain_ring_no_hint():
+    text = "Granny square. Ch 4, sl st to form a ring."
+    assert check_chain_ring_start(BALL, text, []) == []
+    assert "chain_ring_start" not in kinds(check_shape(BALL, from_ring=True, flat=True, text=text))

@@ -37,16 +37,18 @@ dc3bobble dc4bobble dc5bobble tr4bobble dc3pc dc4pc dc5pc hdc3puff hdc4puff hdc5
 
 Names are built as `[fp|bp]` + stitch + `[bl|fl]` + `[Ninc|Ntog]`. `Ninc` puts N stitches into one stitch, N any whole number: `dc5inc` = "5 dc in next st"; "7 dc in each dc" is `N*[dc7inc]`. `Ntog` joins N stitches into one. Loop letters go before N: "sc2tog in back loop only" is `scbl2tog`, never `sc2togbl`. bl/fl exist for ss sc hdc dc tr dtr trtr; fp/bp cannot take bl/fl (`fpscbl` is invalid: `# CANNOT: <reason>`). Not valid: inc, dec, invdec, sl, slst, blo, flo, and the bare words bobble, puff, popcorn, picot, cluster, shell.
 
-Patterns: shell = (N dc) in one st: `dcNinc`; V-st: `dc,ch,dc@[@]`; cluster over sts: `dc3tog`; bobble, popcorn, puff in one st: `dc3bobble`, `dc5pc`, `hdc3puff`. A size not listed: `# CANNOT: <stitch> size`.
+Patterns: shell = (N dc) in one st: `dcNinc`; V-st: `dc,ch,dc@[@]`. A size not listed: `# CANNOT: <stitch> size`.
+
+Cluster versus bobble. A CLUSTER ("dc3tog cluster", "3-dc cluster over next 3 sts") is worked across SEPARATE stitches and drawn together: it uses N stitches below and makes 1, so write it as a decrease: `dc3tog`. A BOBBLE, PUFF or POPCORN is worked into ONE stitch: it uses 1 and makes 1 (`dc3bobble`, `hdc3puff`, `dc5pc`). Only a cluster the text says is worked "in the same st" takes the bobble form.
 
 ## Counts and repeats
 
 - `Nx` is N separate stitches in N consecutive stitches: `6sc` is six sc. It is NOT an increase; use `sc2inc`.
-- `N*[a,b,c]` repeats a group N times: `6*[sc,sc2inc]`. Groups may nest. Count first, always.
+- `N*[a,b,c]` repeats a group N times: `6*[sc,sc2inc]`. Groups may nest.
 - "Rep from * around" with no count: repeats = the previous line's stitch count as worked (from the line above, never a total stated in the English) divided by the stitches one repeat consumes. If it does not divide evenly, output `# CANNOT: repeat does not fit`; never fix the pattern.
 - "rep from * N times" usually means N MORE times (N+1 in all); "*...* N times" and "(...) N times" mean N in all. Follow the pattern's own note if it defines this; if unclear, take the reading whose count matches the stated count. "Rep between * once" is once more. `◊ ... ◊` and `***` mark repeats like `*`.
 - Brackets with comma-separated numbers (`sc in next 4 [5, 6] sts`, `(88 [94, 106] sc)`, `Rows 29-36 [31-38]`) are SIZES, not repeats: output `# CANNOT: multi-size pattern, choose a size`.
-- `{ }` nest inside `[ ]` repeats or a `( )` group worked in one stitch (examples below). "Ending last rep at **" is a partial final repeat: `>` marks where the last repeat stops, and the partial repeat counts as one.
+- `{ }` nest inside `[ ]` repeats or a `( )` group worked in one stitch. "Ending last rep at **" is a partial final repeat: `>` marks where the last repeat stops, and the partial repeat counts as one.
 - "Row 1 (RS):" side markers are ignored. "Work even" means no increases or decreases.
 - "(...) N times" repeats a group, but "(2 dc, ch 3, 2 dc) in next st/sp" is all in ONE stitch: decide from "in next st/sp".
 - Chains: number first: `5ch`; bare `ch` is one chain. Skips: `sk`, `2sk`; skipped stitches still use up stitches of the previous line.
@@ -69,10 +71,10 @@ Foundation chain on its own line: `12ch`. Then:
 - `turn` is how this language writes flat rows, not a correction: every flat row ends with `,turn` except the last row of the piece, even if the English never says turn. It goes only at the very end of a line.
 **Turning chains and counting (the conventions a crocheter assumes unless the pattern says otherwise).**
 - A turning chain does NOT count as a stitch, at any height (sc `ch 1`, hdc `ch 2`, dc `ch 2` or `ch 3`, tr `ch 4`). It only adds height. Write it as `ch` and count only the stitches: `ch,11sc`, `2ch,12hdc`, after 14 dc "ch 3, dc in each st across" is `3ch,14dc`. A row that names only some stitches ("ch 2, hdc in next 8 sts") makes exactly those.
-- The chains before the first stitch of a foundation row ARE its turning chain, so they are not counted: "Ch 15, sc in 2nd ch from hook" gives 14 sc (`sk,14sc`); "Ch 16, hdc in 3rd ch from hook" gives 14 hdc (`2sk,14hdc`); "Ch 17, dc in 4th ch from hook and in each ch across" gives 14 dc (`3sk,14dc`). "Skip 3 ch" is the same.
-- The turning chain counts as a stitch ONLY when the English says so ("ch 3 (counts as first dc)", "turning ch counts as a st"). Then write no `ch`, only the row's stitches with that one included: after 15 dc, "ch 3 (counts as dc), dc in each st across" is `15dc`, and the chains skipped in row 1 count as one stitch too: Ch 17, "dc in 4th ch from hook" gives 15 dc, `2sk,15dc` (one fewer `sk` than the English skips). If the English says nothing but its stated count only fits that reading, use it; never otherwise.
-- Joined rounds follow the same rule: a starting `ch 3 (counts as dc)` is the round's first dc, written as `dc` (label it `dc.S`), and "sl st to top of ch-3" is `ss@S`; without "counts as", `3ch` is just chains. A stated count like "(12 dc)" counts only that stitch type; a bare "(12)" leaves chains and chain spaces out. `ch 5 (counts as dc + ch 2)` is `dc,2ch`.
-- "..., ch 3, turn" at the end of a row is the next row's turning chain; it may be written at the start of the next row instead.
+- The chains before the first stitch of a foundation row ARE its turning chain, so they are not counted: "Ch 15, sc in 2nd ch from hook" gives 14 sc (`sk,14sc`); "Ch 16, hdc in 3rd ch from hook" gives 14 hdc (`2sk,14hdc`); "Ch 17, dc in 4th ch from hook and in each ch across" gives 14 dc (`3sk,14dc`). "Skip 3 ch" is the same. Only the exact turning-chain height is the turning chain: sc 1, hdc 2, dc 2 or 3, tr 4. Extra chains skipped before the first stitch form a space and count, like the "ch 1, skip 1" of a mesh: "Ch 94, sc in 4th ch from hook, [ch 1, skip 1 ch, sc in next ch] across (92)" is 46 sc + 46 chains, `3sk,sc,45*[ch,sk,sc]` (the program adds the extra space).
+- The turning chain counts as a stitch ONLY when the English says so ("ch 3 (counts as first dc)", "turning ch counts as a st"). Then write no `ch`, only the row's stitches with that one included: after 15 dc, "ch 3 (counts as dc), dc in each st across" is `15dc`, and the chains skipped in row 1 count as one stitch too: Ch 17, "dc in 4th ch from hook" gives 15 dc, `2sk,15dc` (one fewer `sk` than the English skips). If the English says nothing, its wording can: "ch 3, dc in NEXT st" means the chain counts (the row starts in the next stitch), "ch 3, dc in FIRST st" or "in same st" means it does not. If nothing at all says so but its stated count only fits that reading, use it; never otherwise.
+- Joined rounds follow the same rule: a starting `ch 3 (counts as dc)` is the round's first dc, written as `dc` (label it `dc.S`), and "sl st to top of ch-3" is `ss@S`; without "counts as", `3ch` is just chains. A bare stated count "(12)" includes every chain except turning chains (corner ch-2s, mesh ch-1s count); a typed count "(12 dc)" counts only that stitch. `ch 5 (counts as dc + ch 2)` is `dc,2ch`.
+- "..., ch 3, turn" at the end of a row belongs to the next row: write it at the start of the next row (`3ch,...`).
 
 ## Labels and chain spaces
 
@@ -171,32 +173,6 @@ ring.R0
 ```
 ```counts
 12 24 36
-```
-
-```english
-Ch 11. Row 1: dc in 4th ch from hook and across (9 dc), turn. Rows 2-4: ch 3 (counts as dc), dc in each st across (9 dc).
-```
-```code
-11ch
-2sk,9dc,turn
-9dc,turn
-9dc,turn
-9dc
-```
-```counts
-9 9 9 9
-```
-
-```english
-Ch 10. Row 1: sc in 2nd ch from hook and across, turn. Row 2: ch 1, sc in first st, ch 6, sc in 2nd ch from hook and in each ch back (5 sc), sc in each remaining st across.
-```
-```code
-10ch
-sk,9sc,turn
-ch,sc,ch,5ch.L,5sc@1L,8sc
-```
-```counts
-9 14
 ```
 
 ```english

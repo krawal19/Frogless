@@ -55,3 +55,32 @@ def bare_number(source: str, number: int, family: str) -> bool:
             continue  # "in next 7 dc", "in each of 7 dc"
         return True
     return False
+
+
+_SEGMENT_BREAK = re.compile(r"[,.;]")
+_LOOSE_STITCH = re.compile(r"(?<![A-Za-z])\d*\s*(?:ch|sc|hdc|dc|dtr|tr|slst|sl\s*st|ss)(?![a-z]{3})", re.IGNORECASE)  # "2dcin" too
+_LABEL_PREFIX = re.compile(r"^\s*(?:rows?|rnds?|rounds?|r)\s*[\d\s\-–,&and]*:", re.IGNORECASE)
+
+
+def repeated_phrases(source: str) -> list[str]:
+    """Instructions the row writes twice in a row, as the second copy reads: "Ch5, 2dc in same sapce" in
+    "ch5, 2dc in same sapce. Ch5, 2dc in same sapce. 15dc".
+
+    A phrase is two to four comma- or full-stop-separated pieces that name at least two stitches or chains between
+    them, repeated straight after itself (spacing, case and punctuation do not matter). One piece repeated is not
+    reported ("sc, sc" is two stitches). Written-out repeats are real instructions: whoever translates the row must
+    keep both copies, even when the second looks like a typo.
+    """
+    pieces = [p for p in _SEGMENT_BREAK.split(_LABEL_PREFIX.sub("", source, count=1))]
+    keys = [re.sub(r"[^a-z0-9]", "", p.lower()) for p in pieces]
+    found, i = [], 0
+    while i < len(pieces):
+        for length in (4, 3, 2):
+            run = keys[i:i + length]
+            if len(run) == length and all(run) and run == keys[i + length:i + 2 * length] \
+                    and len(_LOOSE_STITCH.findall(" ".join(pieces[i:i + length]))) >= 2:
+                found.append(", ".join(p.strip() for p in pieces[i + length:i + 2 * length]))
+                i += 2 * length - 1
+                break
+        i += 1
+    return found

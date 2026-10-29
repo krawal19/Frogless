@@ -68,11 +68,11 @@ def stated_count(line: str) -> StatedCount | None:
 
 # "ch 3 (counts as first dc)", "turning chain counts as a st" / "does not count as a stitch"
 _COUNTS_AS = re.compile(r"\bcount(?:s|ed|ing)?\s+as\b")
-_NOT_COUNTS_AS = re.compile(r"(?:\bnot|n't|\bnever|\bwithout)\s+(?:\w+\s+){0,2}?count(?:s|ed|ing)?\s+as\b")
+_NOT_COUNTS_AS = re.compile(r"(?:\bnot|n't|\bnever|\bwithout)\s+(?:\w+\s+){0,2}?count(?:s|ed|ing)?(?=\s+as\b|\s*[).,;\]]|\s*$)")
 
 
-def turning_chain_says(line: str) -> bool | None:
-    """What a line says about its chain counting as a stitch: True ("ch 3 (counts as dc)"),
+def turning_chain_explicit(line: str) -> bool | None:
+    """What a line says outright about its chain counting as a stitch: True ("ch 3 (counts as dc)"),
     False ("ch 3 (does not count as a st)") or None (nothing)."""
     text = _LABEL.sub("", line.lower().strip(), count=1)
     if not re.search(r"\bch(?:ain|s)?\b", text):
@@ -80,3 +80,49 @@ def turning_chain_says(line: str) -> bool | None:
     if _NOT_COUNTS_AS.search(text):
         return False
     return True if _COUNTS_AS.search(text) else None
+
+
+# Wording clues, weaker than a statement. A row that starts "ch 3, dc in NEXT st" leaves the stitch beside the chain
+# unworked, so the chain stands in for it (it counts); "dc in FIRST st" (or "in same st") works that stitch, so the chain
+# does not count. A row whose last stitch goes into the previous row's turning chain ("dc in top of turning ch", "last dc in
+# 3rd ch of beg ch-3", "dc in 2nd ch of turning ch") treats that chain as a stitch of the row.
+_START_PLACE = re.compile(
+    r"\bch(?:ain)?s?\s*-?\s*(?:[2-9]|\d\d)\b\s*(?:\([^)]*\)\s*)?[,;.]?\s*(?:(?:and\s+)?(?:then\s+)?\d*\s*)"
+    r"(?:hdc|dc|tr|dtr|trc)\s+(?:in|into)\s+(?:the\s+)?(next|first|1st|same)\s+(?:\d+\s+)?(?:st|sts|stitch|stitches)\b")
+_INTO_TURNING = re.compile(
+    r"\b(?:in|into)\s+(?:the\s+)?(?:"
+    r"(?:top|\d+(?:st|nd|rd|th)\s+ch(?:ain)?|(?:last|first)\s+ch(?:ain)?)\s+of\s+(?:the\s+)?"
+    r"(?:(?:turning|beg(?:inning)?|starting)\s*-?\s*)?ch(?:ain|s)?\b"
+    r"|turning\s*-?\s*ch(?:ain)?\b)")
+
+
+def turning_chain_clue(line: str) -> bool | None:
+    """What the wording of a line suggests about its turning chain counting: True, False or None (see above)."""
+    text = _LABEL.sub("", line.lower().strip(), count=1)
+    found = {m.group(1) == "next" for m in _START_PLACE.finditer(text)}
+    if _INTO_TURNING.search(text):
+        found.add(True)
+    return found.pop() if len(found) == 1 else None
+
+
+def turning_chain_says(line: str) -> bool | None:
+    """What a line says about its chain counting as a stitch: its own statement, else what its wording suggests."""
+    explicit = turning_chain_explicit(line)
+    return explicit if explicit is not None else turning_chain_clue(line)
+
+
+def turning_chain_stated(lines) -> bool | None:
+    """What the pattern says about its turning chain: True (counts as a stitch), False (does not), or None (silent or
+    contradicting itself). Only statements are looked at; wording clues count only when the pattern states nothing at all
+    and are asked for separately (turning_chain_hint), so "does not count" wins over a row that works into the chain."""
+    said = {turning_chain_explicit(line) for line in lines} - {None}
+    return said.pop() if len(said) == 1 else None
+
+
+def turning_chain_hint(lines) -> bool | None:
+    """What the wording of the pattern's rows suggests about the turning chain, when it states nothing."""
+    lines = list(lines)
+    if {turning_chain_explicit(line) for line in lines} - {None}:
+        return None
+    said = {turning_chain_clue(line) for line in lines} - {None}
+    return said.pop() if len(said) == 1 else None

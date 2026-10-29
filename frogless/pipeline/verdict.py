@@ -21,7 +21,9 @@ pattern breaks at the EARLIEST row where the engine errors or the stated count d
 Counting conventions (the unwritten ones a crocheter assumes; the pattern's own words win):
 - a turning chain does NOT count as a stitch, whatever the stitch height. It counts only when the
   pattern says so ("ch 3 (counts as first dc)"), or, as a fallback, when the stated counts fit only
-  that reading; the verdict then says it works only if the turning chain counts;
+  that reading; the verdict then says it works only if the turning chain counts. Wording is weaker evidence
+  (patterns/stated.py): "ch 3, dc in next st" or a last stitch worked into the turning chain suggests it counts,
+  "dc in first st" that it does not; this settles a tie, never overrules the counts or a statement;
 - a bare stated count ("(24)") is the stitches plus every chain except the turning chain: corner chains,
   mesh chains and chains inside a row count. If a row's count fits only with all chains left out the pattern
   still passes, with a note, never silently.
@@ -34,7 +36,7 @@ import re
 from dataclasses import dataclass, field
 
 from ..engine import CheckResult, Engine, RowInfo
-from ..patterns.stated import StatedCount, stated_count, turning_chain_says
+from ..patterns.stated import StatedCount, stated_count, turning_chain_hint, turning_chain_stated
 from .gate import row_counts
 from .report import Alternative, Interpreted, RowResult, Verdict
 
@@ -191,8 +193,14 @@ def _evaluate(reading: str, rows: list[_Row], result: CheckResult | None, error_
 def _turning_chain_stated(rows: list[_Row]) -> bool | None:
     """What the pattern itself says about its turning chain: True (counts as a stitch), False (does
     not) or None (silent, or it says both)."""
-    said = {turning_chain_says(r.result.source) for r in rows if not r.result.synthetic} - {None}
-    return said.pop() if len(said) == 1 else None
+    return turning_chain_stated(r.result.source for r in rows if not r.result.synthetic)
+
+
+def _turning_chain_hint(rows: list[_Row]) -> bool | None:
+    """What the wording of the rows suggests when the pattern states nothing ("ch 3, dc in next st" or a last stitch worked
+    into the turning chain: it counts; "dc in first st": it does not). Weaker than a statement: it only settles a tie
+    between the two readings, and the stitch counts can still overrule it."""
+    return turning_chain_hint(r.result.source for r in rows if not r.result.synthetic)
 
 
 def _names(numbers: list[int]) -> str:
@@ -232,6 +240,7 @@ def decide_verdict(engine: Engine, text: str, rows: list[RowResult],
     unread = [r for r in no_code if r.result.ledger_ok is None]
 
     stated_by_pattern = _turning_chain_stated(mapped)
+    hint = _turning_chain_hint(mapped) if stated_by_pattern is None else None
     outcomes = [_evaluate(rd, mapped, result, error_row, limit, bool(stated_by_pattern)) for rd in READINGS]
     plain, turn = outcomes
     reading = ""  # said only when the pattern's wording did not settle it and the stated counts needed the fallback
@@ -239,12 +248,14 @@ def decide_verdict(engine: Engine, text: str, rows: list[RowResult],
         best = turn if stated_by_pattern and turn.fits >= plain.fits else plain
     else:
         best = turn if turn.fits > plain.fits else plain  # not counted, unless the counts fit only the other way
+        if hint is not None and turn.fits == plain.fits and turn.row != plain.row:
+            best = turn if hint else plain  # the wording settles a tie that would otherwise be ambiguous
         reading = TURN_COUNTS if best is turn else ""
     note = " (the turning chain counts as a stitch here)" if reading == TURN_COUNTS else ""
     chains = best.row is None and bool(best.chain_rows)
 
     foundation = next((r.info.stitch_count for r in mapped if r.info is not None and r.info.index == 0), None)
-    if (stated_by_pattern is None and plain.fits == turn.fits and plain.row != turn.row  # equally good, different answers
+    if (stated_by_pattern is None and hint is None and plain.fits == turn.fits and plain.row != turn.row  # equally good, different answers
             and _turn_is_clear(mapped, foundation, None)):  # ... and counting the chain is not just a stray row's need
         broken = [o.row for o in outcomes if o.row is not None]
         what = "the stated counts fit two ways of counting, which disagree on where this pattern breaks"
@@ -311,7 +322,8 @@ def counting_fits(engine: Engine, rows: list[RowResult], result: CheckResult | N
     mapped, _ = _map_rows(engine, rows, result)
     foundation = next((r.info.stitch_count for r in mapped if r.info is not None and r.info.index == 0), None)
     stated_by_pattern = _turning_chain_stated(mapped)
-    if not _turn_is_clear(mapped, foundation, stated_by_pattern):
+    if not _turn_is_clear(mapped, foundation, stated_by_pattern if stated_by_pattern is not None
+                          else (True if _turning_chain_hint(mapped) else None)):
         return {}
     said = bool(stated_by_pattern)
     out = {}

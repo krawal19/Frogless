@@ -18,6 +18,10 @@ Checks (each is a small function, and check_shape runs them all):
    of one round differ in size (one ch-4 space among ch-2 spaces). Needs StitchInfo.
 4. check_flat_rows      - a row whose count drifts from the row below with nothing to explain
    it. Light: only rows without chain spaces, where the count is easy to follow.
+5. check_stacked_increases - rounds from a ring whose increases sit in the same places round after
+   round: a hexagon with a line of gaps instead of a circle. Info only. Needs StitchInfo.
+6. check_chain_ring_start  - a chain ring start (not a magic ring) on a stuffed or 3D piece. Info
+   only. Needs the pattern text.
 
 Counting conventions: chains ("ch") and slip stitches ("ss...") are not counted as stitches.
 "NNinc" (sc2inc, dc3inc) makes N stitches in one; "Ntog" works N stitches together into one.
@@ -73,7 +77,8 @@ def starts_from_ring(text: str) -> bool:
     return bool(_RING_WORDS.search(text))
 
 
-def check_shape(rows: list[RowInfo], from_ring: bool = False, flat: bool = False) -> list[ShapeFinding]:
+def check_shape(rows: list[RowInfo], from_ring: bool = False, flat: bool = False,
+                text: str = "") -> list[ShapeFinding]:
     """Run every shape check. from_ring says the first row is a round worked into a ring; flat says
     the piece is meant to lie flat. Growth that isn't flat is only a warning for a flat piece: in a
     3D piece (a ball, a cone, a hat) it is the point, so it is described as information."""
@@ -86,6 +91,10 @@ def check_shape(rows: list[RowInfo], from_ring: bool = False, flat: bool = False
     findings += check_even_spacing(rows, cyclic=from_ring)
     findings += check_polygon(rows)
     findings += check_flat_rows(rows)
+    if from_ring:
+        findings += check_stacked_increases(rows)
+        if not flat:
+            findings += check_chain_ring_start(rows, text, findings)
     return sorted(findings, key=lambda f: (f.row is None, f.row or 0))
 
 
@@ -488,3 +497,72 @@ def _has_inner_chain(row: RowInfo) -> bool:
     while kinds and _is_chain(kinds[-1]):
         kinds.pop()
     return any(_is_chain(s) for s in kinds)
+
+
+# ---- 5. stacked increases -------------------------------------------------------------------
+
+STACK_MIN_ROUNDS = 3  # consecutive increasing rounds with lined-up increases before we say anything
+STACK_TOLERANCE = 1  # an increase may sit this many stitches off the one below and still be lined up
+
+
+def _increase_spots(row: RowInfo) -> list[int]:
+    """Working-order index of each increase among the round's counted stitches."""
+    return [i for i, s in enumerate(_counted(row)) if (_change(s.kind) or ("", 0))[0] == "inc"]
+
+
+def _lined_up(below: RowInfo, row: RowInfo) -> bool:
+    """Whether each increase of `row` falls at the same fraction of the way round as one of `below`."""
+    a, b = _increase_spots(below), _increase_spots(row)
+    if len(a) < 3 or len(a) != len(b):
+        return False
+    n_a, n_b = len(_counted(below)), len(_counted(row))
+    return all(abs(x * n_b / n_a - y) <= STACK_TOLERANCE for x, y in zip(a, b))
+
+
+def check_stacked_increases(rows: list[RowInfo]) -> list[ShapeFinding]:
+    """Rounds from a ring whose increases line up round after round (3 or more rounds in a row)
+    make a hexagon with a line of small gaps instead of a circle. Skipped for polygons (corners
+    are meant to line up) and for balls (rounds that decrease)."""
+    place = _chain_places(rows)
+    if any(len(corner_sides(row, place)) >= 3 for row in rows):
+        return []
+    if any(_count(b) < _count(a) for a, b in zip(rows, rows[1:])):
+        return []
+    findings: list[ShapeFinding] = []
+    run: list[RowInfo] = []
+    for row in [*rows, None]:
+        if row is not None and run and _lined_up(run[-1], row):
+            run.append(row)
+            continue
+        if len(run) >= STACK_MIN_ROUNDS:
+            findings.append(ShapeFinding(run[0].index, "stacked_increases", (
+                f"Rounds {run[0].index}–{run[-1].index} put their increases in the same places each round, "
+                f"so the circle will look like a hexagon with a line of small gaps above each increase. "
+                f"Staggering the increases (moving where each round starts) gives a rounder circle."), "info"))
+        run = [row] if row is not None and len(_increase_spots(row)) >= 3 else []
+    return findings
+
+
+# ---- 6. chain ring start --------------------------------------------------------------------
+
+_CHAIN_RING = re.compile(
+    r"\bch(ain)?\s*\d+\b[^.\n]{0,60}?(\b(in|into)\s+(the\s+)?(2nd|second|1st|first)\s+ch\b"
+    r"|\bform(ing)?\s+a\s+(ring|circle)\b|\bjoin\b[^.\n]{0,30}\b(ring|circle)\b)", re.I)
+_MAGIC = re.compile(r"magic\s+(ring|circle|loop)|adjustable\s+(ring|loop)", re.I)
+_STUFFED = re.compile(r"\b(stuff(ed|ing)?|fib(re|er)\s?fill|poly\s?fill|amigurumi)\b", re.I)
+
+
+def check_chain_ring_start(rows: list[RowInfo], text: str, found: list[ShapeFinding]) -> list[ShapeFinding]:
+    """A chain ring start on a 3D or stuffed piece (ball, tube or cup from the growth findings, or
+    stuffing in the text) leaves a small hole. Not for flat pieces, granny squares or polygons."""
+    if not text or _MAGIC.search(text) or meant_flat(text) or not _CHAIN_RING.search(text):
+        return []
+    place = _chain_places(rows)
+    if any(len(corner_sides(row, place)) >= 3 for row in rows):
+        return []
+    three_d = any(f.kind in ("ball", "tube", "cups", "ruffles") and f.severity == "info" for f in found)
+    if not (three_d or _STUFFED.search(text)):
+        return []
+    return [ShapeFinding(None, "chain_ring_start", (
+        "This starts with a chain ring, which leaves a small hole in the middle; a magic ring closes "
+        "fully, which matters if the piece will be stuffed."), "info")]

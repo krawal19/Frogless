@@ -47,9 +47,9 @@ Column "Engine code" shows what to write for one stitch worked into one stitch o
 | Popcorn (pc) | A group of full stitches in one stitch, then the first and last joined to pop out | ✅ | `dc3pc`, `dc4pc`, `dc5pc`. Popcorn of other sizes or stitch types: nearest size, flagged as approximate |
 | Reverse popcorn (rpc) | Popcorn worked on the wrong side so it shows on the right side | ◐ | Same code as popcorn; the side it pops to is not modelled |
 | Puff stitch | Several half-finished loops in one stitch pulled through at once | ✅ | `hdc3puff`, `hdc4puff`, `hdc5puff` (hdc-based only; a puff of another size or base stitch is ◐) |
-| Cluster in one stitch (cl, 3-dc cl, 4-dc cl) | Several dc started in one stitch and closed together | ◐ | `dc3bobble` / `dc4bobble` for the same shape; counts match (one stitch in, one out) |
+| Cluster in one stitch (only when the text says "in the same st") | Several dc started in one stitch and closed together | ◐ | `dc3bobble` / `dc4bobble` for the same shape; counts match (one stitch in, one out). A cluster the text does not place in one stitch is the across-stitches form in the next row of this table |
 | Treble cluster (tr cl) | Same with treble stitches | ◐ | `tr4bobble` is the only tr form; legs differ, counts match |
-| Cluster across stitches | Several stitches each started in a different stitch, closed together | ✅ | `dc3tog`, `dc4tog`, `tr2tog`; consumes N |
+| Cluster across stitches (cl, 3-dc cl, "dc3tog cluster", "cluster over next 3 sts") | Several stitches each started in a different stitch, closed together | ✅ | `dc3tog`, `dc4tog`, `tr2tog`; consumes N, makes 1. The default reading of "cluster"; bobble, puff and popcorn are the one-stitch forms (uses 1, makes 1) |
 | Double / triple treble | Taller stitches, see Basics | ✅ | `dtr`, `trtr` |
 | Extended sc / hdc / dc / tr (ext) | The stitch with one extra chain at its base, a bit taller | ◐ | `sc`, `hdc`, `dc`, `tr`: counts equal, the extra height is not modelled |
 | Foundation sc / hdc / dc | Chain and first row made in one pass, no separate starting chain | ◐ | Use a normal chain and first row with the usual skips: N foundation sc = `<N+1>ch` then `sk,Nsc`; N foundation dc = `<N+2>ch` then `2sk,Ndc`. A row cannot start without a chain (`10sc` as line one is an engine error) |

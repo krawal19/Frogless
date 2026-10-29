@@ -117,3 +117,54 @@ def test_an_engine_that_cannot_list_items_gives_no_verdict():
 
     Blind.__abstractmethods__ = frozenset()
     assert reading_problem(Blind(), "", "12sc", "6sc", "Round 2: sc in each st (12)") == ""
+
+
+# ---- a phrase the row writes twice in a row ----
+TWICE = "Round 2: slst in ch2 space, ch3, 2dc in same space. Ch3, 2dc in same space. 5dc, dc in last corner (14dc)"
+ONCE_CODE = "(dc.W,2ch.E,2dc)@A,5dc,dc,ss@W"  # the translator merged the two copies
+TWICE_CODE = "(dc.W,2ch.E,2dc,dc,2ch.F,2dc)@A,5dc,dc,ss@W"
+
+
+def test_a_phrase_written_twice_in_a_row_is_found():
+    from frogless.patterns.placement import repeated_phrases
+
+    assert repeated_phrases(TWICE) == ["Ch3, 2dc in same space"]
+    assert repeated_phrases("Round 2: sc in each st, ch 1, turn (12)") == []
+    assert repeated_phrases("Round 2: [ch 3, 2dc in same space] x2, 5dc") == []  # a multiplier is not a repeat of text
+    assert repeated_phrases("Round 2: sc, sc, sc, 5dc") == []  # one piece twice is just two stitches
+
+
+def test_a_reading_that_drops_the_repeated_phrase_is_refused_once_the_literal_code_keeps_it(engine):
+    before = SQUARE.split("\n(dc.W")[0]
+    why = reading_problem(engine, before, TWICE_CODE, ONCE_CODE, TWICE)
+    assert "drops" in why
+    assert reading_problem(engine, before, TWICE_CODE, TWICE_CODE.replace("5dc", "3dc"), "Round 2: 5dc, dc") == ""  # a number is fine
+
+
+def test_a_translation_that_merged_the_repeated_phrase_is_asked_again_and_replaced(engine, monkeypatch, tmp_path):
+    import json
+
+    from frogless.pipeline import translate
+    from frogless.pipeline.faithful import restore_repeats
+    from frogless.pipeline.report import RowResult
+
+    asked = []
+
+    def fake_chat(role, messages, **opts):
+        asked.append(messages[0]["content"])
+        return {"text": json.dumps({"code": TWICE_CODE}), "usage": {"output_tokens": 5}, "cost_usd": 0.01}
+
+    monkeypatch.setattr(translate, "chat", fake_chat)
+    before = SQUARE.split("\n(dc.W")[0]
+    rows = [RowResult(index=0, source="Round 1: x", code=before, origin="rules"),
+            RowResult(index=1, source=TWICE, code=ONCE_CODE, origin="model")]
+    row, cost = restore_repeats(engine, "Round 1: x\n" + TWICE, rows, 1, tmp_path)
+    assert row.code == TWICE_CODE and cost == 0.01
+    assert 'the row writes "Ch3, 2dc in same space" twice in a row' in asked[0]
+    # a reply that does not add anything (or a row without a repeated phrase) leaves the code alone
+    plain = RowResult(index=1, source="Round 2: 5dc, dc", code="5dc,dc", origin="model")
+    assert restore_repeats(engine, "x", [rows[0], plain], 1, tmp_path) == (plain, 0.0)
+    monkeypatch.setattr(translate, "chat", lambda *a, **k: {"text": json.dumps({"code": ONCE_CODE}),
+                                                            "usage": {"output_tokens": 5}, "cost_usd": 0.0})
+    kept, _ = restore_repeats(engine, "y\n" + TWICE, rows, 1, tmp_path / "other")
+    assert kept.code == ONCE_CODE

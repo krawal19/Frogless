@@ -337,3 +337,33 @@ def test_bench_known_gap_cases_are_judged_right():
         rows = rows_of(case["spec"], case["english"])
         v, _, _ = decide_verdict(ENGINE, case["english"], rows, ENGINE.check("\n".join(r.code for r in rows)))
         assert (v.kind, v.row) == ("breaks", case["expected"]["break_row"]), case["id"]
+
+
+# ---- wording clues about the turning chain settle a tie, never a statement or the counts ----
+def test_next_st_or_first_st_settles_a_tie_between_the_two_readings():
+    lines, infos = dc_rows(13, 14)  # row 1 follows one habit, row 2 the other: ambiguous (see above)
+    lines[2] = ("Row 2: ch 3, dc in next st and across (14)", True)  # starts in the NEXT stitch: the chain counts
+    v, _, _ = run(lines, infos)
+    assert (v.kind, v.row, v.reading) == ("breaks", 1, TURN_COUNTS)
+    lines[2] = ("Row 2: ch 3, dc in first st and across (14)", True)  # starts in the FIRST stitch: it does not
+    v, _, _ = run(lines, infos)
+    assert (v.kind, v.row, v.reading) == ("breaks", 2, "")
+
+
+def test_a_clue_does_not_override_counts_that_fit_the_default():
+    lines, infos = dc_rows(13, 13, 13)
+    lines[3] = ("Row 3: ch 3, dc in next st and across (13)", True)
+    v, _, computed = run(lines, infos)
+    assert (v.kind, v.reading) == ("works", "") and computed[3] == 13
+
+
+def test_a_last_stitch_in_the_turning_chain_hints_that_it_counts_but_a_statement_wins():
+    lines, infos = dc_rows(13, 14)
+    lines[2] = ("Row 2: ch 3, dc across, dc in top of turning ch (14)", True)
+    v, _, _ = run(lines, infos)
+    assert (v.kind, v.row, v.reading) == ("breaks", 1, TURN_COUNTS)
+    lines, infos = dc_rows(13, 13, 13)
+    lines[2] = ("Row 2: ch 3, dc across, dc in 2nd ch of turning ch (13)", True)
+    lines[3] = ("Row 3: ch 3 (does not count as a stitch), dc across (13)", True)
+    v, _, computed = run(lines, infos)
+    assert (v.kind, v.reading) == ("works", "") and computed[2] == 13  # stays "not counted"

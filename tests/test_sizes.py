@@ -73,3 +73,43 @@ def test_check_pattern_sizes_runs_each_size():
 def test_single_size_gives_one_report():
     results = check_pattern_sizes("Round 1: 6 sc in ring (6)", use_model=False)
     assert len(results) == 1 and results[0][1].verdict.kind == "works"
+
+
+
+def test_parentheses_sizes_with_size_line():
+    text = "Sizes: S (M, L)\nRound 1: sc in next 4 (5, 6) sts\nRound 2: (88 (94, 106) sc)"
+    assert size_count(text) == 3
+    parts = split_sizes(text)
+    assert [lbl for lbl, _ in parts] == ["S", "M", "L"]
+    assert parts[1][1] == "Sizes: M\nRound 1: sc in next 5 sts\nRound 2: (94 sc)"
+
+
+def test_parentheses_finished_size_and_to_fit():
+    assert size_count('Finished size: 36 (40, 44)"\nsc in next 4 (5, 6) sts') == 3
+    assert size_count("To fit: 2 (4, 6) years\nsc in next 4 (5, 6) sts") == 3
+
+
+def test_parentheses_value_count_must_match():
+    text = "Sizes: S (M, L)\nsc in next 4 (5, 6, 7) sts"
+    assert all(t.endswith("sc in next 4 (5, 6, 7) sts") for _, t in split_sizes(text))
+
+
+def test_repeats_and_groups_without_size_line_not_split():
+    for text in ["(sc, inc) 6 times", "(2 dc, ch 2, 2 dc) in next st", "sc in next 4 (5, 6) sts"]:
+        assert size_count(text) == 1
+    text = "Sizes: S (M, L)\n(sc, inc) 6 times, (2 dc, ch 2, 2 dc) in next st"
+    assert all(t.endswith("(sc, inc) 6 times, (2 dc, ch 2, 2 dc) in next st") for _, t in split_sizes(text))
+
+
+def test_zero_drops_only_that_step():
+    text = "Sizes: S (M, L)\nRow 5: sc 3, dec 2 (1, 0) times, sc 2."
+    parts = split_sizes(text)
+    assert parts[1][1].endswith("Row 5: sc 3, dec 1 times, sc 2.")
+    assert parts[2][1] == "Sizes: L\nRow 5: sc 3, sc 2."
+
+
+def test_zero_rule_repeat_rows_and_last_step():
+    text = "Sizes: S (M, L)\nsc 3, dec 2 (1, 0) times.\nRep rows 5-6 0 (2, 4) times."
+    parts = split_sizes(text)
+    assert parts[2][1] == "Sizes: L\nsc 3.\nRep rows 5-6 4 times."
+    assert parts[1][1] == "Sizes: M\nsc 3, dec 1 times.\nRep rows 5-6 2 times."

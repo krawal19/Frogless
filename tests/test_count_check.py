@@ -232,3 +232,22 @@ def test_a_corner_worked_one_stitch_per_chain_of_a_long_space_is_still_a_corner(
     found = check_shape(result.rows, from_ring=True)
     assert "corners_changed" not in [f.kind for f in found]  # four corners in every round: nothing twists
     assert [(f.row, f.kind) for f in found] == [(1, "uneven_corners")]
+
+
+# ---- extra chains skipped before a foundation row's first stitch form a space and count ----
+def test_only_the_exact_turning_chain_height_is_not_counted_in_a_foundation_row():
+    from frogless.engine import get_engine
+    from frogless.pipeline.gate import row_counts
+
+    engine = get_engine()
+
+    def counts(code):
+        return row_counts(engine.check(code).rows[1], None)
+
+    assert counts("15ch\nsk,14sc")[0] == 14  # Ch 15, sc in 2nd ch
+    assert counts("17ch\n3sk,14dc")[0] == 14  # Ch 17, dc in 4th ch (ch 3 is the turning chain)
+    assert counts("17ch\n2sk,15dc")[0] == 15  # dc in 3rd ch (ch 2 is the turning chain)
+    # Ch 94, sc in 4th ch from hook, [ch 1, skip 1 ch, sc in next ch] across: 46 sc + 46 chains
+    assert counts("94ch\n3sk,sc,45*[ch,sk,sc]") == [92, 46]
+    assert counts("94ch\n5sk,sc,44*[ch,sk,sc]")[0] == 91  # 4 extra skipped chains: 2 more
+    assert row_counts(engine.check("94ch\n3sk,sc,45*[ch,sk,sc]").rows[1], "sc") == [46]  # a typed count is the stitch only

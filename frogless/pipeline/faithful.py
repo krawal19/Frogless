@@ -3,6 +3,7 @@
 Code -> English via the engine's describe(), then a model compares it with the original
 row (one call per row). On a mismatch the row is translated again, told what was wrong; after
 three translation attempts in all, the row is marked unreadable rather than guessed at.
+A row that writes a phrase twice in a row gets its code put right first if the model merged the two (restore_repeats).
 An "interpreted" verdict is refused (as a mismatch) for code that differs from the first translation and
 deletes from it or moves its stitches (guards.py).
 
@@ -16,11 +17,13 @@ translated again, told the engine's message. That takes one of the three attempt
 """
 
 import json
+from collections import Counter
 from dataclasses import replace
 from pathlib import Path
 
 from ..engine import Engine
 from ..models.client import ROOT
+from ..patterns.placement import repeated_phrases
 from .guards import reading_problem
 from .report import RowResult
 from .translate import CACHE_DIR as TRANSLATE_CACHE_DIR
@@ -48,6 +51,39 @@ _UNSUPPORTED_NOTE = (
 
 def _needs_check(row: RowResult) -> bool:
     return not row.synthetic and row.status == "ok" and bool(row.code)
+
+
+def _has_more_items(engine: Engine, new: str, old: str) -> bool:
+    """True when `new` writes every stitch and chain of `old` and more besides (engines that cannot list say no)."""
+    if not hasattr(engine, "row_items"):
+        return False
+    a, b = engine.row_items(new), engine.row_items(old)
+    if not a or not b:
+        return False
+    have, was = Counter(i.kind for i in a), Counter(i.kind for i in b)
+    return all(have[k] >= n for k, n in was.items()) and sum(have.values()) > sum(was.values())
+
+
+def restore_repeats(engine: Engine, text: str, rows: list[RowResult], i: int,
+                    cache_dir: Path = TRANSLATE_CACHE_DIR) -> tuple[RowResult, float]:
+    """Row i with a repeated instruction put back when the model's code merged it (guards.py needs a literal code that
+    still has everything the row writes). A row that writes a phrase twice in a row ("Ch5, 2dc in same space. Ch5, 2dc
+    in same space") is translated once more, told to do it twice; the new code replaces the old only if it writes
+    everything the old one did and more, and the engine accepts it. Returns (row, cost in USD)."""
+    row = rows[i]
+    if row.origin != "model" or not row.code or row.synthetic:
+        return row, 0.0
+    phrases = repeated_phrases(row.source)
+    if not phrases:
+        return row, 0.0
+    said = " and ".join(f'"{p}"' for p in phrases)
+    feedback = (f"the row writes {said} twice in a row, and each copy is an instruction to work it: the code must do it "
+                "twice, once for each time it is written, not once. Never merge or skip a repeated instruction, "
+                "even if the second copy looks like a typo")
+    again, cost = retranslate_row(engine, text, rows, i, feedback, cache_dir)
+    if again.status == "ok" and again.code != row.code and _has_more_items(engine, again.code, row.code)             and not _rejection(engine, rows[:i] + [again], i):
+        return replace(row, code=again.code), cost
+    return row, cost
 
 
 def _rejection(engine: Engine, rows: list[RowResult], i: int) -> str:
@@ -118,6 +154,9 @@ def check_faithfulness(engine: Engine, text: str, rows: list[RowResult], cache_d
     rows, total, guide = list(rows), 0.0, engine.notation_guide()
     for i in range(len(rows)):
         attempts = 1  # the translation we were given
+        if _needs_check(rows[i]):
+            rows[i], cost = restore_repeats(engine, text, rows, i, translate_cache_dir)
+            total += cost
         first = rows[i].code  # ... the literal one, which a later "interpreted" code must not delete from
         while _needs_check(rows[i]):
             rejected = _rejection(engine, rows, i)

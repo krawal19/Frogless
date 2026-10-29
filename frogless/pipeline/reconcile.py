@@ -24,7 +24,7 @@ from pathlib import Path
 
 from ..engine import Engine
 from ..models.client import ROOT
-from ..patterns.stated import stated_count, turning_chain_says
+from ..patterns.stated import stated_count, turning_chain_stated
 from .faithful import CACHE_DIR as FAITHFUL_CACHE_DIR
 from .faithful import _english, _judge
 from .guards import reading_problem
@@ -69,8 +69,7 @@ def _counts_made(engine: Engine, rows: list[RowResult], i: int, code: str,
     if info.index < 1:
         return None
     foundation = next((r.stitch_count for r in check.rows if r.index == 0), None)
-    says = {turning_chain_says(r.source) for r in rows if not r.synthetic} - {None}
-    said = says == {True}
+    said = turning_chain_stated(r.source for r in rows if not r.synthetic) is True
     mapped = _Row(info.index, replace(row, code=code), info, stated)
     return stated.count, {rd: _counts(mapped, rd, foundation, said) for rd in READINGS}
 

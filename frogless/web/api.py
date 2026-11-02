@@ -79,16 +79,21 @@ def _table(report) -> list[dict]:
         if row.synthetic:
             table.append({"number": None, "text": "(added: magic ring)", "translated_by": "added",
                           "read_back": row.english, "stated": None, "computed": None, "status": "added", "note": row.note,
-                          "double_checked": False})
+                          "checked_by": None})
             continue
         number = n + offset
         n += 1
+        # who read the row, and who confirmed that reading: "model_ok"/"model_bad" for the read-back check,
+        # "count_ok"/"count_bad" for a ledger row (the model read its counts, the arithmetic checked them), None if no one
         if row.ledger_ok is not None:
-            by, status = "counted", ("ok" if row.ledger_ok else "breaks")
+            by, status = "model", ("ok" if row.ledger_ok else "breaks")
+            checked = "count_ok" if row.ledger_ok else "count_bad"
         elif not row.code:
-            by, status = ("model" if row.origin == "model" else "none"), "not checked"
+            by, status = "none", "not checked"
+            checked = "model_bad" if row.faithful is False else None
         else:
             by, status = row.origin, "ok"
+            checked = "model_ok" if row.faithful is True else "model_bad" if row.faithful is False else None
         if v and v.kind == "breaks" and v.row == number:
             status = "breaks"
         elif v and v.kind == "breaks" and v.row is not None and number > v.row and status == "ok":
@@ -99,7 +104,7 @@ def _table(report) -> list[dict]:
         table.append({"number": number, "text": _LABEL_TEXT.sub("", row.source.strip(), count=1).strip() or row.source.strip(),
                       "translated_by": by, "read_back": row.english, "stated": report.stated.get(number),
                       "computed": report.computed.get(number), "status": status, "note": "; ".join(notes),
-                      "double_checked": row.faithful is True or row.ledger_ok is not None})
+                      "checked_by": checked})
     return table
 
 

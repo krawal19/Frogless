@@ -334,11 +334,16 @@ function seconds(n) { return `${(n || 0).toFixed(1)} s`; }
 function byLabel(by, model) {
   if (by === "rules") return "rules";
   if (by === "model") return model || "model";
-  if (by === "counted") return `counted by ${model || "model"}`;
-  return by || "";
+  if (by === "added") return "added";
+  return "–";
 }
 
-function byClass(by) { return by === "model" || by === "counted" ? "by-ai" : `by-${by}`; }
+function byClass(by) { return by === "model" ? "by-ai" : `by-${by}`; }
+
+function checkedLabel(checked, model) {
+  const name = model || "model";
+  return { model_ok: `${name} ✓`, model_bad: `${name} ✗`, count_ok: "count check ✓", count_bad: "count check ✗" }[checked] || "–";
+}
 
 function RowTable({ rows, model }) {
   const mismatch = (r) => r.stated != null && r.computed != null && r.stated !== r.computed;
@@ -346,7 +351,7 @@ function RowTable({ rows, model }) {
     <div className="table-wrap">
       <table className="rows">
         <thead>
-          <tr><th className="num">Row</th><th>As written</th><th>Read by</th><th>Read back as</th>
+          <tr><th className="num">Row</th><th>As written</th><th>Read by</th><th>Checked by</th><th>Read back as</th>
             <th className="num">Pattern says</th><th className="num">Frogless counts</th><th>Note</th></tr>
         </thead>
         <tbody>
@@ -354,8 +359,9 @@ function RowTable({ rows, model }) {
             <tr key={i} className={r.status === "breaks" ? "is-breaks" : r.status === "added" ? "is-added" : ""}>
               <td className="num mono">{r.number ?? "–"}</td>
               <td className="mono wrap">{r.text}</td>
-              <td><span className={`by ${byClass(r.translated_by)}`}>{byLabel(r.translated_by, model)}</span>
-                {r.double_checked && <span className="dc" title="The reading was turned back into words and compared, or counted a second way">double-checked</span>}</td>
+              <td><span className={`by ${byClass(r.translated_by)}`}>{byLabel(r.translated_by, model)}</span></td>
+              <td className={r.checked_by ? `checked ck-${r.checked_by.endsWith("ok") ? "ok" : "bad"}` : "checked"}>
+                {checkedLabel(r.checked_by, model)}</td>
               <td className="wrap">{r.read_back || ""}</td>
               <td className="num mono">{r.stated ?? "–"}</td>
               <td className={`num mono${mismatch(r) ? " mismatch" : ""}`}>
@@ -382,7 +388,7 @@ function HowWeChecked({ result }) {
         <small>every row, and what we noticed about the shape</small></summary>
       <div className="details-body">
         <p className="muted">Each row was read by fixed rules or, when the wording was unusual, by {result.model || "a language model"}. Where possible the reading was
-          turned back into words and compared with what you wrote (double-checked).</p>
+          turned back into words and compared with what you wrote; the Checked by column says who confirmed it.</p>
         <RowTable rows={result.rows} model={result.model} />
         <h4>Shape hints</h4>
         {result.shape_lines && result.shape_lines.length

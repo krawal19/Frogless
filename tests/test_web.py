@@ -66,9 +66,23 @@ def test_row_table_and_marked_lines(monkeypatch):
     r2 = rows[2]
     assert (r2["translated_by"], r2["stated"], r2["computed"], r2["status"]) == ("model", 13, 12, "breaks")
     assert rows[3]["status"] == "not checked"
+    assert [r["checked_by"] for r in rows] == [None, None, None, None]  # nothing was confirmed in this mock
     marks = [line["mark"] for line in body["written_lines"]]
     assert marks == ["", "breaks", ""]  # the breaking row is marked; its fix is on the same row
     assert [line["mark"] for line in body["corrected_lines"]] == ["", "fix", ""]
+
+
+def test_checked_by_says_who_confirmed_each_reading():
+    rows = [RowResult(0, "Round 1: 6 sc in ring (6)", code="a", faithful=True),
+            RowResult(1, "Round 2: inc x6 (12)", code="b", origin="model", faithful=True),
+            RowResult(2, "Round 3: (sc, inc) x6 (18)", code="c", origin="model"),
+            RowResult(3, "Round 4: odd (24)", code="", origin="model", status="cannot", faithful=False),
+            RowResult(4, "Round 5: legs (30)", code="", origin="model", status="cannot", ledger_ok=True),
+            RowResult(5, "Round 6: legs (36)", code="", origin="model", status="cannot", ledger_ok=False)]
+    table = api._table(PatternReport(text="", rows=rows, verdict=Verdict(kind="works", message="ok")))
+    assert [(r["translated_by"], r["checked_by"]) for r in table] == [
+        ("rules", "model_ok"), ("model", "model_ok"), ("model", None), ("none", "model_bad"),
+        ("model", "count_ok"), ("model", "count_bad")]
 
 
 def test_no_fix_and_empty_text(monkeypatch):

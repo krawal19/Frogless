@@ -351,7 +351,9 @@ mark.ins { background: color-mix(in srgb, var(--works-strong) 30%, transparent);
 .tag.gone { color: var(--breaks-strong); }
 
 /* ---------- how we checked, developer ---------- */
-.dc { display: inline-block; margin-left: 6px; padding: 0 8px; border-radius: 999px; font-size: 11.5px; font-weight: 600; background: var(--works-bg); color: var(--works-ink); border: 1px solid var(--works-line); white-space: nowrap; }
+td.checked { white-space: nowrap; }
+td.checked.ck-ok { color: var(--works-ink); font-weight: 600; }
+td.checked.ck-bad { color: var(--breaks-ink); font-weight: 600; }
 .dev { padding: 18px 20px 20px; border-style: dashed; border-color: var(--line-strong); gap: 14px; }
 .dev-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 32px; }
 @media (max-width: 860px) { .dev-grid { grid-template-columns: minmax(0, 1fr); } }

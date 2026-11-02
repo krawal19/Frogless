@@ -183,14 +183,20 @@ def _note_blocks(report) -> list[dict]:
             add("Note", n, "yellow")
     _terms_blocks(report, add)
     if v:
+        # the headline already says "works only if ...": the note says why, not the same sentence again
+        conditional = v.reading == messages.TURN_COUNTS or v.chains_left_out
         if v.reading == messages.TURN_COUNTS:
-            add("Only if the turning chain counts", messages.TURN_NOTE, "yellow")
+            add("Only if the turning chain counts",
+                "The stated counts only fit if the turning chain at the start of each row counts as a stitch. "
+                "Some designers count it and some don't, so check how this pattern is meant to be read.", "yellow")
         if v.chains_left_out:
-            add("Check the chain counting", messages.CHAINS_NOTE, "yellow")
+            add("Check the chain counting",
+                "The stated counts only fit if the chains aren't counted as stitches. "
+                "Check how this pattern is meant to be read.", "yellow")
         if v.kind == "works_counts_only":
             add("Checked by count only", f"{messages._rows(messages._word(report), v.counted)} can't be drawn stitch by stitch.", "yellow")
         status = _corrected_status(report)
-        if status == "none_needed":
+        if status == "none_needed" and not conditional:
             add("Every row checks out", "No corrections needed.", "green")
         elif status == "no_fix" and v.kind == "breaks":
             add("No fix found", "Frogless couldn't find a correction that passes its checks.", "red")

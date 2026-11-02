@@ -290,3 +290,21 @@ def test_terms_notes_warn_when_the_choice_cannot_be_confirmed():
     assert blocks("Row 1: htr in each st across (12)", "US") == [("Looks like UK terms", "yellow")]
     assert blocks("Round 1: 6 sc in magic ring (6)", "US") == []
     assert blocks("Round 1: 6 sc in magic ring (6)", "UK") == [("Looks like US terms", "yellow")]
+
+
+def test_turning_chain_note_explains_and_drops_the_all_clear():
+    from frogless.pipeline.verdict import TURN_COUNTS
+
+    text = "Ch 13.\nR1: hdc in 3rd ch from hook and in each ch across, ch 2, turn (12)"
+    rows = [RowResult(0, text.splitlines()[1], code="x")]
+
+    def notes(**kw):
+        report = PatternReport(text=text, rows=rows, verdict=Verdict(kind="works", message="ok", **kw),
+                               terms=Terms("US", []))
+        return [(b["title"], b["body"]) for b in api._note_blocks(report)]
+
+    turn = notes(reading=TURN_COUNTS)
+    assert [t for t, _ in turn] == ["Only if the turning chain counts"]  # no green "Every row checks out" beside it
+    assert "Works only if" not in turn[0][1]  # the headline says that already
+    assert [t for t, _ in notes(chains_left_out=True)] == ["Check the chain counting"]
+    assert [t for t, _ in notes()] == ["Every row checks out"]

@@ -27,6 +27,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+from ..models.client import load_config
 from ..patterns.terms import detect_terms
 from ..pipeline import check as pipeline_check
 from ..pipeline import messages, output
@@ -83,7 +84,7 @@ def _table(report) -> list[dict]:
         number = n + offset
         n += 1
         if row.ledger_ok is not None:
-            by, status = "counted by AI", ("ok" if row.ledger_ok else "breaks")
+            by, status = "counted", ("ok" if row.ledger_ok else "breaks")
         elif not row.code:
             by, status = ("model" if row.origin == "model" else "none"), "not checked"
         else:
@@ -230,7 +231,15 @@ def describe(report, label: str = "") -> dict:
         "clean_pattern": clean,
         "timings": {k: report.timings.get(k, 0.0) for k in STAGES},
         "cost_usd": round(report.cost_usd, 4),
+        "model": model_name(),
     }
+
+
+def model_name(role: str = "translator") -> str:
+    """The display name of the model behind a role, from config/models.json: "muse-spark-1.3" -> "Muse Spark 1.3"."""
+    model = load_config()["roles"][role]["model"]
+    words = model.split("-")
+    return " ".join(w if w[:1].isdigit() else w.capitalize() for w in words)
 
 
 # ---- check ----

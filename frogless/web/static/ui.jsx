@@ -331,13 +331,16 @@ const STAGE_NAME = {
 
 function seconds(n) { return `${(n || 0).toFixed(1)} s`; }
 
-function byLabel(by) {
+function byLabel(by, model) {
   if (by === "rules") return "rules";
-  if (by === "model" || by === "counted by AI") return "AI";
+  if (by === "model") return model || "model";
+  if (by === "counted") return `counted by ${model || "model"}`;
   return by || "";
 }
 
-function RowTable({ rows }) {
+function byClass(by) { return by === "model" || by === "counted" ? "by-ai" : `by-${by}`; }
+
+function RowTable({ rows, model }) {
   const mismatch = (r) => r.stated != null && r.computed != null && r.stated !== r.computed;
   return (
     <div className="table-wrap">
@@ -351,7 +354,7 @@ function RowTable({ rows }) {
             <tr key={i} className={r.status === "breaks" ? "is-breaks" : r.status === "added" ? "is-added" : ""}>
               <td className="num mono">{r.number ?? "–"}</td>
               <td className="mono wrap">{r.text}</td>
-              <td><span className={`by by-${byLabel(r.translated_by).toLowerCase()}`}>{byLabel(r.translated_by)}</span>
+              <td><span className={`by ${byClass(r.translated_by)}`}>{byLabel(r.translated_by, model)}</span>
                 {r.double_checked && <span className="dc" title="The reading was turned back into words and compared, or counted a second way">double-checked</span>}</td>
               <td className="wrap">{r.read_back || ""}</td>
               <td className="num mono">{r.stated ?? "–"}</td>
@@ -378,9 +381,9 @@ function HowWeChecked({ result }) {
       <summary><Icon name="chevron" size={18} /><span>How we checked</span>
         <small>every row, and what we noticed about the shape</small></summary>
       <div className="details-body">
-        <p className="muted">Each row was read by fixed rules or, when the wording was unusual, by an AI. Where possible the reading was
+        <p className="muted">Each row was read by fixed rules or, when the wording was unusual, by {result.model || "a language model"}. Where possible the reading was
           turned back into words and compared with what you wrote (double-checked).</p>
-        <RowTable rows={result.rows} />
+        <RowTable rows={result.rows} model={result.model} />
         <h4>Shape hints</h4>
         {result.shape_lines && result.shape_lines.length
           ? <ul className="plain">{result.shape_lines.map((l, i) => <li key={i}>{l.trim()}</li>)}</ul>

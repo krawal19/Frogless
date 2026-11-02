@@ -308,3 +308,7 @@ def test_turning_chain_note_explains_and_drops_the_all_clear():
     assert "Works only if" not in turn[0][1]  # the headline says that already
     assert [t for t, _ in notes(chains_left_out=True)] == ["Check the chain counting"]
     assert [t for t, _ in notes()] == ["Every row checks out"]
+
+
+def test_model_name_comes_from_the_config():
+    assert api.model_name() == "Muse Spark 1.3"

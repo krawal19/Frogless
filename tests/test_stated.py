@@ -179,16 +179,16 @@ def test_wording_clues_about_the_turning_chain():
     assert turning_chain_says("Row 2: ch 3, dc in first st, dc across") is False
     assert turning_chain_says("Row 2: ch 3, dc in same st, dc across") is False
     assert turning_chain_says("Row 2: ch 3, dc in each st across") is None
-    assert turning_chain_says("Row 2: ch 2, sc in the first ch 1 space") is None  # a space, not a stitch
+    assert turning_chain_says("Row 2: ch 1, sc in the first ch-3 space") is None  # a space, not a stitch
     # a last stitch worked into the previous row's turning chain
     for text in ("Row 2: dc across, dc in top of turning ch", "Row 3: last dc in 3rd ch of beg ch-3",
-                 "Row 2: sk 1, dc in 2nd ch of turning ch, turn", "Row 2: dc across, dc in top of ch-3"):
+                 "Row 4: dc to end, last dc in 3rd ch of turning ch", "Row 2: dc across, dc in top of ch-3"):
         assert turning_chain_says(text) is True, text
     assert turning_chain_clue("Row 2: ch 3, dc in first st, dc in top of turning ch") is None  # says both
     # an explicit statement beats a clue on the same line and in the pattern as a whole
     assert turning_chain_says("Row 2: ch 3 (does not count), dc in next st") is False
     assert turning_chain_says("Row 2: ch 3 (counts as dc), dc in first st") is True
-    rows = ["Row 2: ch 2, sk 1, dc in 2nd ch of turning ch, turn.",
-            "Notes: turning ch 2 does not count as a stitch unless stated otherwise."]
+    rows = ["Row 3: ch 3, dc to end, last dc in 3rd ch of turning ch, turn.",
+            "Note: the ch 3 at the start of each row does not count as a stitch."]
     assert turning_chain_stated(rows) is False and turning_chain_hint(rows) is None
     assert turning_chain_stated(rows[:1]) is None and turning_chain_hint(rows[:1]) is True

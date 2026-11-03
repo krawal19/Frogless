@@ -7,14 +7,14 @@ from frogless.pipeline.messages import user_message
 from frogless.pipeline.report import PatternReport, RowResult
 from frogless.pipeline.verdict import decide_verdict
 
-ROUND = "Round 1: Ch5(dc,ch2), [3dc into ring,ch2]x3, Ch 2, 2dc into ring, slst.[12dc]"
+ROUND = "Round 1: Ch6(dc,ch3), [2dc into ring,ch3]x3, Ch 3, dc into ring, slst.[9dc]"
 
 
 def test_the_chain_after_a_repeat_that_ends_with_it_is_read_once():
     text, notes = merge_repeat_chains(ROUND)
-    assert text == "Round 1: Ch5(dc,ch2), [3dc into ring,ch2]x3, 2dc into ring, slst.[12dc]"
+    assert text == "Round 1: Ch6(dc,ch3), [2dc into ring,ch3]x3, dc into ring, slst.[9dc]"
     assert len(notes) == 1
-    assert notes[0].reading == "the 'ch 2' after the repeat is the same chain as the repeat's last 'ch 2' (written twice)"
+    assert notes[0].reading == "the 'ch 3' after the repeat is the same chain as the repeat's last 'ch 3' (written twice)"
 
 
 def test_other_spellings_of_a_repeat():
@@ -49,19 +49,19 @@ def test_each_line_is_merged_on_its_own():
 def test_the_note_shows_as_an_interpreted_reading():
     text, notes = merge_repeat_chains(ROUND)
     # the translator rewrites the label and "x3" as "3 times" before the row is a RowResult
-    source = "rnd 1: Ch5(dc,ch2), [3dc into ring,ch2] 3 times, 2dc into ring, slst.[12dc]"
+    source = "rnd 1: Ch6(dc,ch3), [2dc into ring,ch3] 3 times, dc into ring, slst.[9dc]"
     rows = [RowResult(0, source, code="x", faithful=None), RowResult(1, "rnd 2: sc around", code="y")]
     rows = _with_repeat_notes(rows, notes)
     assert rows[0].reading == notes[0].reading and rows[0].note == f"read as {notes[0].reading}"
     assert rows[1].reading == ""
-    result = CheckResult(ok=True, rows=[RowInfo(1, 12, {"dc": 12}), RowInfo(2, 12, {"dc": 12})])
+    result = CheckResult(ok=True, rows=[RowInfo(1, 9, {"dc": 9}), RowInfo(2, 9, {"dc": 9})])
     verdict, _, _ = decide_verdict(get_engine(), text, rows, result)
     assert [(i.row, i.reading) for i in verdict.interpreted] == [(1, notes[0].reading)]
-    assert "same chain as the repeat's last 'ch 2'" in user_message(PatternReport(text=text, rows=rows, verdict=verdict))
+    assert "same chain as the repeat's last 'ch 3'" in user_message(PatternReport(text=text, rows=rows, verdict=verdict))
 
 
 def test_an_existing_reading_keeps_its_own_text():
     _, notes = merge_repeat_chains(ROUND)
-    row = RowResult(0, "rnd 1: Ch5(dc,ch2), [3dc into ring,ch2] 3 times", code="x", faithful=True, reading="sc in each st")
+    row = RowResult(0, "rnd 1: Ch6(dc,ch3), [2dc into ring,ch3] 3 times", code="x", faithful=True, reading="sc in each st")
     (row,) = _with_repeat_notes([row], notes)
     assert row.reading == f"sc in each st; {notes[0].reading}"

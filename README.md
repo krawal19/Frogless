@@ -5,6 +5,10 @@
   </picture>
 </p>
 
+<p align="center">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-GPLv3-blue.svg" alt="License: GPLv3"></a>
+</p>
+
 # Frogless
 
 Paste any crochet pattern. Know if it works before you pick up your hook: where it breaks, how to fix it, and what it will really make.
@@ -199,7 +203,10 @@ python -m scripts.run_testset --patterns path/to/folder --summary-only   # total
 - **US vs UK terms** are chosen by you. Frogless warns when the pattern doesn't say, or looks like the other system.
 - **Pictures:** the 3D view is reliable for 3D pieces (balls, tubes) but not for flat pieces; the symbol chart is reliable for rounds and squares and rough for flat rows.
 - **Model answers vary.** Hard rows are translated three times and the code picks; a few hard patterns can still come out differently between runs.
-- **Synthetic test bench:** 80 of 81 cases right at the last full measurement (Oct 29, before the final tuning). All planted mistakes were caught at the expected row, except one ambiguous case.
+- **One round per line, one piece per check.** Several rounds written on one line, or several pieces (body, arms, feet) pasted together, aren't read correctly yet; check each piece on its own, one round per line.
+- **Ovals worked around both sides of a chain** ("3 sc in last ch, rotate, sc along the other side") are misread and can come out as a false "breaks".
+- **Starting chains:** a row like "hdc in 3rd ch from hook" can occasionally be read as skipping one chain fewer, so that it matches the stated count instead of saying it only works if the turning chain counts.
+- **Synthetic test bench:** at the last full run of all 81 cases (Oct 28), 39 of 40 planted mistakes were caught at the right row (the other came out as "depends on how you count") and all 41 correct patterns were judged correct. The checker was tuned after that run. On Nov 2, the 38 correct test-bench patterns shipped in `examples/general/` and the demo patterns in `examples/demo/` were checked again with the current version: the expected verdict on every one except the starting-chain case above, for $2.03 in model calls.
 
 ## Built during the hackathon
 

@@ -63,8 +63,8 @@ _LABEL_PREFIX = re.compile(r"^\s*(?:rows?|rnds?|rounds?|r)\s*[\d\s\-–,&and]*:"
 
 
 def repeated_phrases(source: str) -> list[str]:
-    """Instructions the row writes twice in a row, as the second copy reads: "Ch5, 2dc in same sapce" in
-    "ch5, 2dc in same sapce. Ch5, 2dc in same sapce. 15dc".
+    """Instructions the row writes twice in a row, as the second copy reads: "Ch3, 2dc in same sp" in
+    "ch3, 2dc in same sp. Ch3, 2dc in same sp. 12dc".
 
     A phrase is two to four comma- or full-stop-separated pieces that name at least two stitches or chains between
     them, repeated straight after itself (spacing, case and punctuation do not matter). One piece repeated is not

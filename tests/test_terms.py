@@ -73,7 +73,7 @@ def test_conflicts_are_unknown_and_ambiguous(text):
 
 @pytest.mark.parametrize("text", [
     "Round 1: ch 2, 3 dc, tr, ss to join",
-    "Round 1-MR, Ch2, (tr,3dc)x3,tr, 2dc, Sl.st",
+    "Rnd 1: MR, Ch3, (tr,2dc)x4, Sl.st",
 ])
 def test_only_dc_tr_is_ambiguous(text):
     t = detect_terms(text)

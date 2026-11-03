@@ -38,20 +38,6 @@ The model reads and suggests; plain code and the stitch engine decide. A fix is 
 
 **Meta models used:** Muse Spark (`muse-spark-1.3`) for translation, faithfulness checks, counting rows the engine can't model, and the two reviews. A SAM 3.1 client (`frogless/models/`) is built and tested for photo features, which the current app doesn't use yet.
 
-## Run the web page
-
-After the setup below:
-```sh
-python -m playwright install chromium   # once; needed to draw the pictures
-python -m frogless.web
-```
-Open http://127.0.0.1:7860, paste a pattern (or pick an example), choose US or UK terms, and press **Check pattern**. Add `?dev=1` to the address for a row-by-row "How we checked" panel, timings and cost.
-
-From the command line:
-```sh
-python -m scripts.check path/to/pattern.txt --clean --chart
-```
-
 ## Setup
 
 ### Requirements
@@ -111,6 +97,19 @@ python -m scripts.hello    # one Muse Spark call, under 1 cent
 python -m scripts.hello_sam path/to/photo.jpg  # one SAM 3.1 call on your own photo, $0.0025
 ```
 Every model call is logged with its cost to `logs/model_calls.jsonl`.
+
+## Run the web page
+
+After the setup above:
+```sh
+python -m frogless.web
+```
+Open http://127.0.0.1:7860, paste a pattern (or pick an example), choose US or UK terms, and press **Check pattern**. Add `?dev=1` to the address for a row-by-row "How we checked" panel, timings and cost.
+
+From the command line:
+```sh
+python -m scripts.check path/to/pattern.txt --clean --chart
+```
 
 ## Testing
 

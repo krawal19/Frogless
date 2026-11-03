@@ -11,6 +11,29 @@ Paste any crochet pattern. Know if it works before you pick up your hook: where 
 
 "Frogging" is ripping out crochet that went wrong. Frogless checks a written pattern stitch by stitch, so you find the mistake on paper instead of in your yarn.
 
+![Frogless finds where a pattern breaks and suggests a re-checked fix](docs/img/hero.png)
+
+## Contents
+
+- [What it does](#what-it-does)
+- [How it works](#how-it-works)
+- [Setup](#setup)
+  - [Requirements](#requirements)
+  - [1. Clone Frogless](#1-clone-frogless)
+  - [2. Clone CrochetPARADE](#2-clone-crochetparade-the-pattern-engine)
+  - [3. Install the Python dependencies](#3-install-the-python-dependencies)
+  - [3b. Visual rendering](#3b-visual-rendering)
+  - [4. Create `.env`](#4-create-env)
+  - [5. Check it works](#5-check-it-works)
+- [Run the web page](#run-the-web-page)
+- [Testing](#testing)
+  - [Known-answer test bench](#known-answer-test-bench)
+  - [Testing on real patterns](#testing-on-real-patterns)
+- [Limits](#limits)
+- [Built during the hackathon](#built-during-the-hackathon)
+- [Prior work and dependencies](#prior-work-and-dependencies)
+- [License](#license)
+
 ## What it does
 
 - **Verdict:** works, breaks at row/round N, depends on a counting convention, or couldn't be read.
@@ -18,6 +41,24 @@ Paste any crochet pattern. Know if it works before you pick up your hook: where 
 - **Fixes:** a suggested correction for the broken row, and only fixes that pass the full check again are shown.
 - **Corrected pattern and pictures:** your pattern and the corrected one side by side, with a stitch chart for each.
 - **Shape hints:** whether a piece will lie flat, cup, ruffle or close into a ball.
+
+**Your pattern and the corrected one, with the change marked on both sides**
+
+![Side-by-side comparison of the written and corrected pattern](docs/img/side-by-side.png)
+
+**What each one makes, stitch by stitch** (charts drawn by CrochetPARADE)
+
+![Symbol charts of the written and corrected pattern](docs/img/charts.png)
+
+**A pattern that works**
+
+![Verdict: this pattern works](docs/img/works.png)
+
+![Symbol chart of a pattern that works](<docs/img/Screenshot 2026-11-02 203054.png>)
+
+**A pattern that depends on how you count**
+
+![Verdict: works only if the turning chain counts as a stitch](docs/img/turning-chain.png)
 
 ## How it works
 
@@ -37,6 +78,14 @@ written pattern
 The model reads and suggests; plain code and the stitch engine decide. A fix is shown only after it passes the same checks as the original.
 
 **Meta models used:** Muse Spark (`muse-spark-1.3`) for translation, faithfulness checks, counting rows the engine can't model, and the two reviews. A SAM 3.1 client (`frogless/models/`) is built and tested for photo features, which the current app doesn't use yet.
+
+**How we checked** (add `?dev=1` to the address): every row, who read it, and who confirmed the reading
+
+![Row-by-row table: read by rules or Muse Spark 1.3, checked by Muse Spark 1.3](docs/img/dev-how-we-check.png)
+
+**Timings and cost of each check**
+
+![Developer panel with stage timings and cost](docs/img/dev-cost.png)
 
 ## Setup
 

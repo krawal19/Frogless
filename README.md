@@ -15,6 +15,8 @@ Paste any crochet pattern. Know if it works before you pick up your hook: where 
 
 "Frogging" is ripping out crochet that went wrong. Frogless checks a written pattern stitch by stitch, so you find the mistake on paper instead of in your yarn.
 
+**[▶ Watch the 3-minute demo](https://youtu.be/HVQ3V4vAZtc)**
+
 ![Frogless finds where a pattern breaks and suggests a re-checked fix](docs/img/hero.png)
 
 ## Contents

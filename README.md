@@ -62,18 +62,31 @@ Paste any crochet pattern. Know if it works before you pick up your hook: where 
 
 ## How it works
 
+```mermaid
+flowchart TD
+    A(["Written pattern"]) --> B["US / UK terms · sizes split"]
+    B --> C["Rules translator<br/>+ stated-count gate"]
+    C -->|readable rows| E
+    C -->|flagged rows| D["Muse Spark translates<br/>3 samples, best one picked"]
+    D --> E["Read-back check<br/>code → English → compared"]
+    E -.->|mismatch: retry, max 3| D
+    E --> F["Count-guided retry"]
+    F --> G["Stitch ledger<br/>rows the engine can't build"]
+    G --> H[["CrochetPARADE engine<br/>counts every stitch"]]
+    H --> I{"Counts fit?"}
+    I -->|yes| K(["Result"])
+    I -->|no| J["Two reviewers<br/>defend vs. fix"]
+    J -->|fix re-checked| K
+
+    classDef spark fill:#ece5fa,stroke:#6b4fbb,color:#1a1a1a
+    classDef code fill:#e3f1ea,stroke:#244937,color:#1a1a1a
+    classDef ends fill:#1a2940,stroke:#1a2940,color:#faf7f0
+    class D,E,F,G,J spark
+    class B,C,H,I code
+    class A,K ends
 ```
-written pattern
-  │
-  ├─ rules translator ── reads the rows it can, flags the rest
-  ├─ Muse Spark ──────── translates each flagged row (3 attempts; code picks the best)
-  ├─ Muse Spark ──────── reads the code back as English and checks it says what the row says
-  ├─ pattern engine ──── builds the stitch graph and counts every stitch (no AI)
-  ├─ referee (code) ──── compares stated vs computed counts, applies crochet conventions
-  ├─ Muse Spark ──────── two whole-pattern reviews: one assumes the pattern is right,
-  │                      one assumes it has a mistake and proposes fixes
-  └─ referee (code) ──── accepts a reading or a fix only if the engine and the counts agree
-```
+
+> NOTE: Purple steps use Muse Spark. Green steps are our rules and the stitch engine.
 
 The model reads and suggests; plain code and the stitch engine decide. A fix is shown only after it passes the same checks as the original.
 

@@ -52,7 +52,7 @@ function Header() {
 }
 
 function InputCard({ text, setText, terms, setTerms, examples, onPick, onCheck, onStop, busy, running }) {
-  const groups = { dev: "Development patterns", smoke: "Smoke tests" };
+  const groups = { demo: "Demo patterns", general: "More examples" };
   const onKey = (e) => { if ((e.ctrlKey || e.metaKey) && e.key === "Enter") onCheck(); };
   return (
     <section className="card input-card">

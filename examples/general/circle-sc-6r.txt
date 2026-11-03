@@ -1,0 +1,6 @@
+Rnd 1: 6 sc in magic ring (6)
+Rnd 2: 2 sc in each st around (12)
+Rnd 3: (sc, 2 sc in next st) 6 times (18)
+Rnd 4: (sc in next 2 sts, 2 sc in next st) 6 times (24)
+Rnd 5: (sc in next 3 sts, 2 sc in next st) 6 times (30)
+Rnd 6: (sc in next 4 sts, 2 sc in next st) 6 times (36)

@@ -1,0 +1,3 @@
+R1: 6 sc in magic ring (6)
+R2: inc in each st around (12)
+R3: *sc, inc; rep from * around (18)

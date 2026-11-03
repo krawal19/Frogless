@@ -4,7 +4,7 @@ POST /api/check          start a check in its own process; returns {"job": id}  
 POST /api/render/{id}    start drawing one size of a checked pattern in its own process; returns {"job": id}  (?wait=1: block)
 GET  /api/job/{id}       the job's state: running | done | error | stopped, with the result when done
 POST /api/stop/{id}      terminate the job's process (and the drawing of the same check)
-GET  /api/examples       example patterns, read at run time from external_patterns/dev/ and logs/smoke/
+GET  /api/examples       example patterns, read at run time from examples/demo/ and examples/general/
 GET  /files/<id>/...     the drawn images (served from logs/web/)
 GET  /                   the page (static files in frogless/web/static/)
 
@@ -35,7 +35,7 @@ from ..pipeline import messages, output
 ROOT = Path(__file__).resolve().parents[2]
 WEB_DIR = ROOT / "logs" / "web"
 STATIC_DIR = Path(__file__).resolve().parent / "static"
-EXAMPLE_DIRS = (("dev", ROOT / "external_patterns" / "dev"), ("smoke", ROOT / "logs" / "smoke"))  # read at run time
+EXAMPLE_DIRS = (("demo", ROOT / "examples" / "demo"), ("general", ROOT / "examples" / "general"))  # read at run time
 KEEP_REPORTS = 50  # checked patterns kept in memory
 
 STAGES = ("translate", "faithfulness", "reconcile", "ledger", "engine_verdict", "review", "shape", "total")

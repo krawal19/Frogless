@@ -1,0 +1,4 @@
+Round 1: 6 sc in magic ring (6)
+Round 2: inc in each st around (12)
+Round 3: (sc, inc) 6 times (18)
+Round 4: (sc in next 2 sts, inc) 6 times (24)

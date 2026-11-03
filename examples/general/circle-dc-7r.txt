@@ -1,0 +1,7 @@
+R1: 12 dc in magic ring = 12
+R2: dc inc in each st around = 24
+R3: *dc, dc inc* x 12 = 36
+R4: *dc in next 2 sts, dc inc* x 12 = 48
+R5: *dc in next 3 sts, dc inc* x 12 = 60
+R6: *dc in next 4 sts, dc inc* x 12 = 72
+R7: *dc in next 5 sts, dc inc* x 12 = 84

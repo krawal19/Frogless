@@ -1,0 +1,8 @@
+Round 1: 6 sc in magic ring = 6
+Round 2: inc in each st around = 12
+Round 3: *sc, inc* x 6 = 18
+Round 4: *sc in next 2 sts, inc* x 6 = 24
+Round 5: *sc in next 3 sts, inc* x 6 = 30
+Round 6: *sc in next 4 sts, inc* x 6 = 36
+Round 7: *sc in next 5 sts, inc* x 6 = 42
+Round 8: *sc in next 6 sts, inc* x 6 = 48

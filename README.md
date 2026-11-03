@@ -106,6 +106,8 @@ python -m frogless.web
 ```
 Open http://127.0.0.1:7860, paste a pattern (or pick an example), choose US or UK terms, and press **Check pattern**. Add `?dev=1` to the address for a row-by-row "How we checked" panel, timings and cost.
 
+> Note: Clear browser cache if page seem to be stuck
+
 From the command line:
 ```sh
 python -m scripts.check path/to/pattern.txt --clean --chart
@@ -139,7 +141,7 @@ python -m scripts.run_testset --patterns path/to/folder --summary-only   # total
 
 ## Built during the hackathon
 
-Everything in this repository was written during the Meta Global AI Developer Hackathon (Oct 27 to Nov 4, 2026): the pipeline in `frogless/` (translation, faithfulness check, referee, review, stitch-count ledger, shape hints, US/UK and multi-size handling), the engine adapter and stitch-graph count checks, the notation guide, the test bench and its generators, the web page, and all tests.
+Everything in this repository was written during the Meta Global AI Developer Hackathon (Oct 26 to Nov 4, 2026): the pipeline in `frogless/` (translation, faithfulness check, referee, review, stitch-count ledger, shape hints, US/UK and multi-size handling), the engine adapter and stitch-graph count checks, the notation guide, the test bench and its generators, the web page, and all tests.
 
 ## Prior work and dependencies
 

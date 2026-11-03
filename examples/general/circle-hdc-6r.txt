@@ -1,0 +1,6 @@
+Round 1: 8 hdc in magic ring (8)
+Round 2: 2 hdc in each st around (16)
+Round 3: (hdc, 2 hdc in next st) 8 times (24)
+Round 4: (hdc in next 2 sts, 2 hdc in next st) 8 times (32)
+Round 5: (hdc in next 3 sts, 2 hdc in next st) 8 times (40)
+Round 6: (hdc in next 4 sts, 2 hdc in next st) 8 times (48)

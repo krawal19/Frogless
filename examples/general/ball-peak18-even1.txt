@@ -1,0 +1,6 @@
+R1: 6 sc in magic ring = 6
+R2: 2 sc in each st around = 12
+R3: (sc, 2 sc in next st) 6 times = 18
+R4: sc around = 18
+R5: (sc, sc2tog) 6 times = 12
+R6: (sc2tog) 6 times = 6

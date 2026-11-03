@@ -1,0 +1,8 @@
+R1: 8 hdc in magic ring = 8
+R2: hdc inc in each st around = 16
+R3: *hdc, hdc inc; rep from * around = 24
+R4: *hdc in next 2 sts, hdc inc; rep from * around = 32
+R5: *hdc in next 3 sts, hdc inc; rep from * around = 40
+R6: *hdc in next 4 sts, hdc inc; rep from * around = 48
+R7: *hdc in next 5 sts, hdc inc; rep from * around = 56
+R8: *hdc in next 6 sts, hdc inc; rep from * around = 64

@@ -139,15 +139,15 @@ def test_page_and_static_files_are_served(monkeypatch):
 
 
 def test_examples_are_read_at_run_time(monkeypatch, tmp_path):
-    dev, smoke = tmp_path / "dev", tmp_path / "smoke"
+    dev, smoke = tmp_path / "demo", tmp_path / "general"
     dev.mkdir(), smoke.mkdir()
     (dev / "b.txt").write_text("Round 1: sc 6", encoding="utf-8")
     (dev / "a.txt").write_text("Round 1: sc 12", encoding="utf-8")
     (dev / "skip.json").write_text("{}", encoding="utf-8")
-    monkeypatch.setattr(api, "EXAMPLE_DIRS", (("dev", dev), ("smoke", smoke), ("gone", tmp_path / "missing")))
+    monkeypatch.setattr(api, "EXAMPLE_DIRS", (("demo", dev), ("general", smoke), ("gone", tmp_path / "missing")))
     client = _client(monkeypatch)
     assert client.get("/api/examples").json()["examples"] == [
-        {"name": "a", "group": "dev", "text": "Round 1: sc 12"}, {"name": "b", "group": "dev", "text": "Round 1: sc 6"}]
+        {"name": "a", "group": "demo", "text": "Round 1: sc 12"}, {"name": "b", "group": "demo", "text": "Round 1: sc 6"}]
     (smoke / "c.txt").write_text("Row 1: dc 6", encoding="utf-8")  # a file added later shows up on the next call
     assert [e["name"] for e in client.get("/api/examples").json()["examples"]] == ["a", "b", "c"]
 
@@ -326,3 +326,11 @@ def test_turning_chain_note_explains_and_drops_the_all_clear():
 
 def test_model_name_comes_from_the_config():
     assert api.model_name() == "Muse Spark 1.3"
+
+
+def test_shipped_examples_are_ours_and_demo_comes_first():
+    found = api.list_examples()
+    assert [e["name"] for e in found if e["group"] == "demo"] == [
+        "Pattern A", "Pattern B (A with Frogless's corrections)", "Pattern C"]
+    assert found[0]["group"] == "demo" and {e["group"] for e in found} == {"demo", "general"}
+    assert all("external_patterns" not in str(folder) for _, folder in api.EXAMPLE_DIRS)

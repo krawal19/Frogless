@@ -1,0 +1,8 @@
+Round 1: 6 sc in magic ring = 6
+Round 2: 2 sc in each st around = 12
+Round 3: *sc, 2 sc in next st; rep from * around = 18
+Round 4: *sc in next 2 sts, 2 sc in next st; rep from * around = 24
+Rounds 5-7: sc in each st around = 24
+Round 8: *sc in next 2 sts, sc2tog; rep from * around = 18
+Round 9: *sc, sc2tog; rep from * around = 12
+Round 10: *sc2tog; rep from * around = 6

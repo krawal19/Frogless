@@ -5,6 +5,7 @@ import time
 from dataclasses import replace
 
 from ..engine import Engine, get_engine
+from ..models.client import ProviderError
 from ..patterns.repeats import RepeatNote, merge_repeat_chains
 from ..patterns.sizes import split_sizes
 from ..patterns.terms import Terms, detect_terms, to_us
@@ -60,6 +61,7 @@ def check_pattern(text: str, *, engine: Engine | None = None, use_model: bool = 
     else:
         t = lap("translate", t)
     rows = [replace(r, synthetic=True, code="") if engine.is_marker(r.source) else r for r in rows]
+    rows = [replace(r, synthetic=True) if r.code and engine.is_directive(r.code) else r for r in rows]
     rows = _with_repeat_notes(rows, repeat_notes)
     t = time.perf_counter()
     if use_model and ledger:
@@ -74,7 +76,10 @@ def check_pattern(text: str, *, engine: Engine | None = None, use_model: bool = 
     report.verdict, report.stated, report.computed = decide_verdict(engine, text, rows, report.check)
     t = lap("engine_verdict", t)
     if use_model and review:
-        report.cost_usd += review_report(engine, text, report)
+        try:
+            report.cost_usd += review_report(engine, text, report)
+        except ProviderError as e:  # keep the verdict already computed
+            report.notes.append(_review_failed_note(e))
         t = lap("review", t)
     if report.check:  # hints about the finished piece; they never change the verdict
         report.shape = check_shape(report.check.rows, from_ring=starts_from_ring(text), flat=meant_flat(text))
@@ -99,6 +104,12 @@ def _key(line: str) -> str:
     """Part of a line, letters and digits only, past its label. The translator rewrites the labels and the
     way repeats are multiplied ("x3" becomes "3 times"), but not the words before that."""
     return _plain(_LABEL.sub("", line, count=1))
+
+
+def _review_failed_note(error: ProviderError) -> str:
+    """The note for a review step that could not finish."""
+    why = "the model took too long" if "timeout" in str(error).lower() else "the model call failed"
+    return f"The review step couldn't finish ({why}), so no fix was looked for."
 
 
 def _with_repeat_notes(rows, notes: list[RepeatNote]):

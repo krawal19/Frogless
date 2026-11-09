@@ -15,6 +15,7 @@ class RowResult:
     status: str = "ok"  # "ok", "flagged" (no code yet), "cannot" (model said it can't)
     synthetic: bool = False  # added by the translator, not written in the pattern
     note: str = ""  # why it was flagged, or the model's CANNOT reason
+    literal: str = ""  # the rules translator's code for a row the stated-count gate threw out (the literal reading)
     english: str = ""  # the code turned back into English (faithfulness check)
     faithful: bool | None = None  # None = not checked (or the checker could not tell)
     reading: str = ""  # faithfulness check: the one reading the code picked for an ambiguous row ("" if none)

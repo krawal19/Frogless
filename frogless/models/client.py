@@ -13,6 +13,7 @@ from .providers import meta
 ROOT = Path(__file__).resolve().parents[2]
 CONFIG_PATH = ROOT / "config" / "models.json"
 PROVIDERS = {"meta": meta}
+ProviderError = meta.ProviderError  # for callers outside models/
 
 
 def load_config():
@@ -38,8 +39,8 @@ def _log_call(cfg, entry):
         f.write(json.dumps(entry) + "\n")
 
 
-def _log_charged_failure(cfg, role, provider_name, model, start, error, cost):
-    """The API answered (and likely billed us) but the reply couldn't be read."""
+def _log_failure(cfg, role, provider_name, model, start, error, cost):
+    """A call that failed: the API answered with something unreadable (likely billed), or it never answered."""
     _log_call(cfg, {
         "ts": datetime.now(timezone.utc).isoformat(),
         "role": role,
@@ -92,8 +93,8 @@ def chat(role, messages, **opts):
             provider_cfg, lambda: adapter.chat(provider_cfg, model, messages, **opts)
         )
     except meta.ProviderError as e:
-        if e.charged:  # token counts unknown, so cost unknown
-            _log_charged_failure(cfg, role, provider_name, model, start, e, None)
+        # Failed calls are logged too (a timeout can still bill); token counts are unknown, so no cost.
+        _log_failure(cfg, role, provider_name, model, start, e, None)
         raise
     latency_ms = round((time.perf_counter() - start) * 1000)
 
@@ -166,8 +167,7 @@ def segment(role, image, prompt, **opts):
             lambda: adapter.segment(provider_cfg, model, image_url, prompt, **opts),
         )
     except meta.ProviderError as e:
-        if e.charged:
-            _log_charged_failure(cfg, role, provider_name, model, start, e, cost)
+        _log_failure(cfg, role, provider_name, model, start, e, cost if e.charged else None)
         raise
     latency_ms = round((time.perf_counter() - start) * 1000)
 

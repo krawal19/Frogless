@@ -102,3 +102,11 @@ def test_turning_chain_written_before_turn_belongs_to_the_next_row():
     assert [r.stitch_count - r.stitch_types.get("ch", 0) for r in result.rows[1:]] == [14, 14, 14]
     # a row that already starts with its chain keeps it
     assert engine.check("11ch\nsk,10sc,ch,turn\nch,10sc").ok
+
+
+def test_directive_only_code_is_recognised():
+    engine = get_engine()
+    for code in ["COLOR:white", "COLOR: red", "start_anew", "start_at@[2]", "COLOR:red\nstart_anew"]:
+        assert engine.is_directive(code), code
+    for code in ["12sc", "", "start_anew,6sc", "COLOR:red\n12sc"]:
+        assert not engine.is_directive(code), code

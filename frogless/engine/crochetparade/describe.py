@@ -511,10 +511,10 @@ def _round_text(items, ctx):
 
 
 _FROM_HOOK = {"sc": "2nd", "hdc": "3rd", "dc": "4th"}
-# Skips before the first stitch that mean "stitch in the Nth ch from hook": the skipped chains are
-# the turning chain (hdc skips 2, dc skips 3), or one fewer when the turning chain counts as a
-# stitch (hdc 1, dc 2, written as that stitch).
-_HOOK_SKIPS = {"sc": (0, 1), "hdc": (1, 2), "dc": (2, 3)}
+# Skips before the first stitch that are said as "stitch in the Nth ch from hook": the skipped chains are
+# the turning chain (hdc skips 2, dc skips 3). One fewer skip (hdc 1, dc 2: the turning chain counted as that
+# stitch) is a different row, one stitch longer, so it is said as a plain skip and the reader can see the difference.
+_HOOK_SKIPS = {"sc": (0, 1), "hdc": (2,), "dc": (3,)}
 
 
 def _foundation_row_text(chains, items, ctx):

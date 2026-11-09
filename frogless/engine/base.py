@@ -79,6 +79,7 @@ class TranslateLine:
     parsed: bool
     reason: str = ""  # why it was not parsed
     synthetic: bool = False  # added by the translator, not in the source text
+    literal: str = ""  # the translator's own code when a later check threw the line out (code is then "")
 
 
 @dataclass
@@ -114,6 +115,11 @@ class Engine(ABC):
     def is_marker(self, source: str) -> bool:
         """True for a translated line that is only a marker of the translator ("start the next piece"):
         no instruction, no code to check, and no row number of its own."""
+        return False
+
+    def is_directive(self, code: str) -> bool:
+        """True for code that is only directives (a colour change, "start a new piece"): it makes no
+        stitch row, so the pattern row that holds it takes no row number."""
         return False
 
     # ---- comparing readings of one row ----

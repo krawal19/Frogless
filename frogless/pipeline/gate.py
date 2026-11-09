@@ -19,7 +19,11 @@ no fault of the line being gated. The gate keeps going but, once there is a hole
 flags a line only for a count mismatch, never for a failed check (that line is kept).
 Counts computed past a hole can still be off; that costs at most an extra flag (the line
 goes to the model, which sees the whole pattern), and it still catches wrong lines such
-as "sc across" read as one stitch.
+as "sc across" read as one stitch. The one other flag past a hole: a copy of the flagged
+line's own words ("Rows 2-8: ..." is one line per row), whose count was only fitted to the
+hole and would not follow the flagged row's answer.
+A line flagged for its count keeps the code it had in `literal`, the literal reading the
+model's answer is judged against (the line's `code` is emptied so the model translates it).
 """
 
 from dataclasses import replace
@@ -129,14 +133,21 @@ def gate_translation(engine: Engine, result: TranslateResult, original_text: str
     kept: list[str] = []  # code of lines still trusted
     lines = []
     hole = False  # a line before this one has no code
+    flagged: set[str] = set()  # the words of the lines flagged so far
     for line in result.lines:
         if not line.parsed or not line.code:
             lines.append(line)
             hole = hole or (not line.parsed and not line.synthetic)
+            if not line.parsed and not line.synthetic:
+                flagged.add(line.source)
+            continue
+        if hole and not line.synthetic and line.source in flagged:
+            lines.append(replace(line, code="", parsed=False, reason="same words as a row that could not be read"))
             continue
         left_out = "" if line.synthetic else left_out_item(engine, line.source, line.code)
         if left_out:
             hole = True
+            flagged.add(line.source)
             lines.append(replace(line, code="", parsed=False,
                                  reason=f"the translation leaves out part of the row: '{left_out}'"))
             continue
@@ -160,7 +171,9 @@ def gate_translation(engine: Engine, result: TranslateResult, original_text: str
                 reason = f"stated count {stated.count}, translation makes {made[0]}{no_ch}"
         if reason:
             hole = True
-            lines.append(replace(line, code="", parsed=False, reason=reason))
+            flagged.add(line.source)
+            # the rules code is kept as the literal reading: the model's answer is judged against it
+            lines.append(replace(line, code="", parsed=False, reason=reason, literal=line.code))
         else:
             kept.append(line.code)
             lines.append(line)

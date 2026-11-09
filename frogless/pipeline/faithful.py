@@ -5,7 +5,8 @@ row (one call per row). On a mismatch the row is translated again, told what was
 three translation attempts in all, the row is marked unreadable rather than guessed at.
 A row that writes a phrase twice in a row gets its code put right first if the model merged the two (restore_repeats).
 An "interpreted" verdict is refused (as a mismatch) for code that differs from the first translation and
-deletes from it or moves its stitches (guards.py).
+deletes from it or moves its stitches (guards.py). The first translation is the rules translator's literal code
+when the stated-count gate threw that out (RowResult.literal), else the code the row had when it came here.
 
 Which rows: every row that has code (the model's and the rules translator's, also rules rows that
 state a count; only the magic ring the translator adds itself is skipped). A mismatching rule row goes
@@ -24,7 +25,7 @@ from pathlib import Path
 from ..engine import Engine
 from ..models.client import ROOT
 from ..patterns.placement import repeated_phrases
-from .guards import reading_problem
+from .guards import hook_problem, reading_problem
 from .report import RowResult
 from .translate import CACHE_DIR as TRANSLATE_CACHE_DIR
 from .translate import PICK_NOTE, ask_cached, retranslate_row
@@ -88,13 +89,16 @@ def restore_repeats(engine: Engine, text: str, rows: list[RowResult], i: int,
 
 def _rejection(engine: Engine, rows: list[RowResult], i: int) -> str:
     """Why the engine rejects row i's code (with the rows before it), or "" if it accepts it.
-    Only invalid code counts; a wrong stitch count is left to the verdict."""
+    Only invalid code counts; a wrong stitch count is left to the verdict. A model's foundation row that starts in
+    another chain than the one the row names ("hdc in 3rd ch from hook") is rejected too: it would make a short
+    stated count fit by working one more stitch."""
     if rows[i].origin != "model":
         return ""
     check = engine.check("\n".join(r.code for r in rows[:i + 1] if r.code))
     if check.error is not None and check.error.kind == "invalid":
         return check.error.message
-    return ""
+    return hook_problem(engine, "\n".join(r.code for r in rows[:i] if r.code), rows[i].code, rows[i].source,
+                        [r.source for r in rows if not r.synthetic])
 
 
 def _english(engine: Engine, rows: list[RowResult], i: int) -> list[str]:
@@ -158,7 +162,7 @@ def check_faithfulness(engine: Engine, text: str, rows: list[RowResult], cache_d
         if _needs_check(rows[i]):
             rows[i], cost = restore_repeats(engine, text, rows, i, translate_cache_dir)
             total += cost
-        first = rows[i].code  # ... the literal one, which a later "interpreted" code must not delete from
+        first = rows[i].literal or rows[i].code  # ... the literal one, which a later "interpreted" code must not delete from
         while _needs_check(rows[i]):
             rejected = _rejection(engine, rows, i)
             if rejected:

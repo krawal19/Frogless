@@ -180,19 +180,23 @@ def test_skips():
 
 
 def test_foundation_rows_with_skips():
-    assert describe("17ch\n2sk,15dc,turn\n15dc") == [
+    assert describe("17ch\n3sk,14dc,turn\n14dc") == [
         "Ch 17.",
         "Row 1: dc in 4th ch from hook and in each ch across, turn.",
-        "Row 2: dc in next 15 sts.",
+        "Row 2: dc in next 14 sts.",
     ]
     assert describe("11ch\nsk,10sc,turn")[1] == "Row 1: sc in 2nd ch from hook and in each ch across, turn."
     assert describe("11ch\nsk,10sc,ch,turn\nch,10sc")[1] == (
         "Row 1: sc in 2nd ch from hook and in each ch across, ch 1, turn."
     )
-    assert describe("15ch\nsk,14hdc,turn")[1] == "Row 1: hdc in 3rd ch from hook and in each ch across, turn."
+    assert describe("15ch\n2sk,13hdc,turn")[1] == "Row 1: hdc in 3rd ch from hook and in each ch across, turn."
     # the turning chain is not counted: dc in the 4th ch from hook skips 3, hdc in the 3rd skips 2
     assert describe("11ch\n3sk,8dc,turn")[1] == "Row 1: dc in 4th ch from hook and in each ch across, turn."
     assert describe("16ch\n2sk,14hdc,turn")[1] == "Row 1: hdc in 3rd ch from hook and in each ch across, turn."
+    # one skip fewer (the turning chain counted as the first stitch) is a longer row: it must not read as the same words
+    assert describe("13ch\nsk,12hdc,turn")[1] == "Row 1: skip next ch, hdc in next 12 ch, turn."
+    assert describe("13ch\n2sk,11hdc,turn")[1] == "Row 1: hdc in 3rd ch from hook and in each ch across, turn."
+    assert describe("17ch\n2sk,15dc,turn")[1] == "Row 1: skip next 2 ch, dc in next 15 ch, turn."
     # any other skip is said literally, in chains
     assert describe("11ch\n4sk,7dc,turn")[1] == "Row 1: skip next 4 ch, dc in next 7 ch, turn."
     assert describe("11ch\nsk,3*[dc,ch,sk],turn")[1] == (

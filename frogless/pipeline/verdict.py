@@ -223,7 +223,7 @@ def _describe(o: _Outcome) -> str:
 def decide_verdict(engine: Engine, text: str, rows: list[RowResult],
                    result: CheckResult | None) -> tuple[Verdict, dict[int, int], dict[int, int]]:
     """Returns (verdict, stated counts, computed counts) keyed by row number."""
-    if not any(r.code for r in rows) or result is None:
+    if not any(r.code and not r.synthetic for r in rows) or result is None:  # nothing written was read
         return Verdict("unreadable", "nothing to check"), {}, {}
     mapped, culprit = _map_rows(engine, rows, result)
     stated = _stated_of(mapped)

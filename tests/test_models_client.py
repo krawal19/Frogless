@@ -30,15 +30,23 @@ def test_charged_segment_failure_is_logged(log_path, monkeypatch):
     assert entry["cost_usd"] == 0.0025
 
 
-def test_uncharged_failure_is_not_logged(log_path, monkeypatch):
+def test_uncharged_failure_is_logged_without_cost(log_path, monkeypatch):
     def fail(*args, **kwargs):
-        raise meta.ProviderError("bad request", status=400)
+        raise meta.ProviderError("network error: ReadTimeout: timed out", retryable=True)
 
     monkeypatch.setattr(meta, "chat", fail)
+    monkeypatch.setattr(client.time, "sleep", lambda s: None)
     with pytest.raises(meta.ProviderError):
         client.chat("translator", [{"role": "user", "content": "hi"}])
 
-    assert not log_path.exists()
+    entry = json.loads(log_path.read_text(encoding="utf-8").strip())
+    assert entry["role"] == "translator" and entry["model"]
+    assert "ReadTimeout" in entry["error"] and entry["cost_usd"] is None
+    assert entry["latency_ms"] >= 0
+
+
+def test_provider_error_is_exported_for_callers_outside_models():
+    assert client.ProviderError is meta.ProviderError
 
 
 def test_unreadable_chat_reply_is_charged(monkeypatch):

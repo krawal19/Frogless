@@ -12,8 +12,11 @@ The comparison is the engine's (Engine.compare_readings, Engine.reading_drops_it
 An engine that cannot list the items of the code gives no verdict and the reading is left to the other checks.
 """
 
+from collections.abc import Iterable
+
 from ..engine import Engine, stitch_family
-from ..patterns.placement import bare_number, named_families, states_placement
+from ..patterns.placement import bare_number, chain_from_hook, named_families, states_placement
+from ..patterns.stated import turning_chain_stated
 
 
 def reading_problem(engine: Engine, before: str, literal: str, candidate: str, source: str) -> str:
@@ -38,3 +41,29 @@ def reading_problem(engine: Engine, before: str, literal: str, candidate: str, s
     a, b = diff.consumes
     return (f"it moves the stitches: it works into {b} stitches of the row below but the row as written works into {a}, "
             "and the row says where its stitches go")
+
+
+def hook_problem(engine: Engine, before: str, code: str, source: str, pattern_lines: Iterable[str]) -> str:
+    """Why `code` starts the foundation row in the wrong chain, or "" if it does not.
+
+    "hdc in 3rd ch from hook" starts in chain 3 (two chains skipped); code that starts in chain 2 works one more stitch
+    and so makes a short stated count fit. Only an explicit "Nth ch from hook" is checked. The one other start allowed is
+    a chain earlier, when the pattern itself says its turning chain counts as a stitch. Code that skips nothing is the
+    engine's plain "next N ch" and is left alone. `before` is the code of the rows before, `pattern_lines` the pattern's rows.
+    """
+    n = chain_from_hook(source)
+    if n is None or not code.strip():
+        return ""
+    check = engine.check("\n".join(c for c in (before, code) if c.strip()))
+    if not check.rows or check.rows[-1].index != 1:
+        return ""
+    first = next((s for s in sorted(check.rows[-1].stitches, key=lambda s: s.position)
+                  if stitch_family(s.kind) not in ("ch", "ss")), None)
+    if first is None or not first.into or first.into[0][0] != 0:
+        return ""
+    placed = first.into[0][1] + 1  # the chain it is worked into, counting from the first chain after the hook
+    allowed = {1, n} | ({n - 1} if turning_chain_stated(pattern_lines) is True else set())
+    if placed in allowed:
+        return ""
+    return (f"the row says to start in chain {n} from the hook, but the code starts in chain {placed}: "
+            "skip the chains before the Nth one, however the count then comes out")

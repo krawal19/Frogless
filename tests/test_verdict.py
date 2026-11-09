@@ -367,3 +367,34 @@ def test_a_last_stitch_in_the_turning_chain_hints_that_it_counts_but_a_statement
     lines[3] = ("Row 3: ch 3 (does not count as a stitch), dc across (13)", True)
     v, _, computed = run(lines, infos)
     assert (v.kind, v.reading) == ("works", "") and computed[2] == 13  # stays "not counted"
+
+
+# ---- directive rows take no row number; synthetic rows alone are no pattern ----
+def test_directive_row_takes_no_row_number():
+    lines = [("Round 1: 6 sc in ring (6)", "x", False), ("Round 2: inc in each st around (12)", "x", False),
+             ("Change to white yarn.", "COLOR:white", True), ("Round 3: sc around (13)", "x", False)]
+    rows = [RowResult(index=i, source=s, code=c, synthetic=syn) for i, (s, c, syn) in enumerate(lines)]
+    result = CheckResult(ok=False, error=count_error(3), rows=[info(1, 6), info(2, 12), info(3, 13)])
+    v, stated, computed = decide_verdict(ENGINE, "", rows, result)
+    assert v.kind == "breaks" and v.row == 3
+    assert stated == {1: 6, 2: 12, 3: 13}
+
+
+def test_colour_change_in_a_real_pattern_keeps_round_numbers():
+    code = "ring.R0\n(6sc)@R0\n6sc2inc\nCOLOR:white\n12sc"
+    rows = [RowResult(index=0, source="make a magic ring.", code="ring.R0", synthetic=True),
+            RowResult(index=1, source="Round 1: 6 sc in ring (6)", code="(6sc)@R0"),
+            RowResult(index=2, source="Round 2: inc in each st around (12)", code="6sc2inc"),
+            RowResult(index=3, source="Change to white yarn.", code="COLOR:white", synthetic=True),
+            RowResult(index=4, source="Round 3: sc around (13)", code="12sc")]
+    v, stated, computed = decide_verdict(ENGINE, "", rows, ENGINE.check(code))
+    assert v.kind == "breaks" and v.row == 3
+    assert stated == {1: 6, 2: 12, 3: 13} and computed == {1: 6, 2: 12, 3: 12}
+
+
+def test_only_synthetic_code_is_unreadable():
+    rows = [RowResult(index=0, source="make a magic ring.", code="ring.R0", synthetic=True),
+            RowResult(index=1, source="Fasten off.", code="tie_up", synthetic=True),
+            RowResult(index=2, source="Round 1: 6 sc in ring (6)", code="")]
+    v, _, _ = decide_verdict(ENGINE, "", rows, ENGINE.check("ring.R0\ntie_up"))
+    assert v.kind == "unreadable"

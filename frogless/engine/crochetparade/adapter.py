@@ -31,6 +31,8 @@ LOOSE_RULES = {"ss", "ch"}
 SYNTHETIC_SOURCES = {"make a magic ring.", "tie_up"}
 # The translator's marker for "start the next piece". It is not code the engine knows.
 RESTART_MARKER = "__restart__"
+# A code line that is only a directive: it changes colour or moves the working point, and makes no stitch.
+_DIRECTIVE_LINE = re.compile(r"^\s*(?:COLOR\s*:.*|start_(?:anew|a_new_chain|at)(?:@\[[^\]]*\]|@\w+|\.\w+)*)\s*$")
 
 
 class CrochetEngine(Engine):
@@ -114,6 +116,10 @@ class CrochetEngine(Engine):
 
     def is_marker(self, source: str) -> bool:
         return source == RESTART_MARKER
+
+    def is_directive(self, code: str) -> bool:
+        lines = [l for l in code.splitlines() if l.strip()]
+        return bool(lines) and all(_DIRECTIVE_LINE.match(l) for l in lines)
 
     def stitches(self) -> list[str]:
         _add_python_path(self.repo)

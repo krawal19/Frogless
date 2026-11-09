@@ -33,6 +33,15 @@ def named_families(source: str) -> tuple[str, ...]:
     return tuple(out)
 
 
+_FROM_HOOK = re.compile(r"(?<!\w)(\d+)(?:st|nd|rd|th)\s+(?:ch|chain)s?\s+from\s+(?:the\s+)?hook\b", re.IGNORECASE)
+
+
+def chain_from_hook(source: str) -> int | None:
+    """N when the row says to start "in the Nth ch from hook" (hdc in 3rd ch from hook: 3), else None."""
+    m = _FROM_HOOK.search(source)
+    return int(m.group(1)) if m else None
+
+
 def states_placement(source: str) -> bool:
     """True when the row says where its stitches go ("in next 2 sts", "in each st", "6 times", "in same st")."""
     return bool(_PLACED.search(source))

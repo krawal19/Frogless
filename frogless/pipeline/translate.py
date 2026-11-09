@@ -4,9 +4,12 @@ Rules translator first, then the stated-count gate, then a language model for ea
 still flagged. Without a model, flagged rows stay flagged.
 
 Model answers vary from run to run, so a flagged row is translated `samples` times (3 by default; the translator's
-"samples" in config/models.json) and code picks the answer (_referee): answers the engine rejects are dropped, then
-an answer whose row count fits the stated count wins, then the answer most attempts agree on, and only then does the
-faithfulness check look at the pick (the next best if it is a mismatch). samples=1 is one call per row.
+"samples" in config/models.json) and code picks the answer (_referee): answers the engine rejects (or that start the
+foundation row in the wrong chain) are dropped, then an answer whose row count fits the stated count wins, then the
+answer most attempts agree on, and only then does the faithfulness check look at the pick (the next best if it is a
+mismatch). One exception comes first: when the rules translator's literal code misses the stated count but makes it
+if the turning chain counts, that literal code is kept, never a model answer that only fits by changing the stitches.
+samples=1 is one call per row.
 """
 
 import hashlib
@@ -19,6 +22,7 @@ from ..engine import Engine
 from ..models.client import ROOT, chat, load_config
 from ..patterns.stated import stated_count
 from .gate import gate_translation, row_counts
+from .guards import hook_problem
 from .report import RowResult
 
 ROLE = "translator"
@@ -45,6 +49,7 @@ def rule_rows(engine: Engine, text: str) -> list[RowResult]:
             status="ok" if line.parsed else "flagged",
             synthetic=line.synthetic,
             note="" if line.parsed else line.reason,
+            literal=line.literal,
         ))
     return rows
 
@@ -107,9 +112,9 @@ def ask_cached(prompt: str, role: str, schema: dict, cache_dir: Path, name: str)
         result = chat(role, messages, json_schema=schema, prompt_cache_key=cache_key, max_tokens=retry_tokens)
         cost += result.get("cost_usd") or 0.0
     reply = {"text": result["text"], "usage": result["usage"], "cost_usd": cost}
-    if reply["text"].strip():  # an empty reply is not worth keeping: retry it next run
-        cache_dir.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(reply, indent=1), encoding="utf-8")
+    # An empty reply is kept too (the model ran out of tokens): asking again costs minutes and money.
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(reply, indent=1), encoding="utf-8")
     return reply, cost
 
 
@@ -159,12 +164,27 @@ def _evaluate(engine: Engine, rows: list[RowResult], i: int, code: str) -> tuple
     return True, stated.count in row_counts(check.rows[-1], stated.stitch)
 
 
+def _only_if_turning_chain_counts(engine: Engine, rows: list[RowResult], i: int, code: str) -> bool:
+    """True when row i written as `code` misses its stated count counted plainly but makes it with the turning chain
+    counted as a stitch (verdict.py's other reading): the code is a fair literal reading of a pattern that counts that way."""
+    from .reconcile import PLAIN, _counts_made  # reconcile.py imports this module
+
+    found = _counts_made(engine, rows[:i] + [replace(rows[i], status="ok", code=code)] + rows[i + 1:], i, code)
+    if found is None:
+        return False
+    stated, counts = found
+    return stated not in counts[PLAIN] and any(stated in c for c in counts.values())
+
+
 def _referee(engine: Engine, text: str, rows: list[RowResult], i: int, candidates: list[RowResult],
              judge_cache_dir: Path | None) -> tuple[RowResult, float]:
     """Pick the row among the independent attempts at row i. Code first, the language model last:
-    drop the attempts the engine rejects; prefer one whose count fits the stated count; prefer the one most
-    attempts agree on; only then ask the faithfulness check about the pick, and about the next best if it
-    is a mismatch. The pick's note says which attempt won and why. Returns (row, cost in USD)."""
+    drop the attempts the engine rejects, and those that start the foundation row in the wrong chain; prefer one whose
+    count fits the stated count; prefer the one most attempts agree on; only then ask the faithfulness check about the
+    pick, and about the next best if it is a mismatch. The pick's note says which attempt won and why.
+    The exception: when the rules translator's literal code (rows[i].literal) misses the stated count only because
+    the turning chain is not counted, it is the pick, whatever the model's attempts say: a count that fits by
+    changing the stitches is a silent fix. Returns (row, cost in USD)."""
     from . import faithful  # faithful.py imports this module
 
     n, cost = len(candidates), 0.0
@@ -172,16 +192,28 @@ def _referee(engine: Engine, text: str, rows: list[RowResult], i: int, candidate
     if not ok:
         return candidates[0], cost
     judged = {k: _evaluate(engine, rows, i, c.code) for k, c in ok}
-    valid = [(k, c) for k, c in ok if judged[k][0]]
-    dropped = len(ok) - len(valid)
-    pool = valid or ok  # if the engine rejects every attempt, the retry loop deals with them
+    accepted = [(k, c) for k, c in ok if judged[k][0]]
+    dropped = len(ok) - len(accepted)
+    before, lines = "\n".join(r.code for r in rows[:i] if r.code), [r.source for r in rows if not r.synthetic]
+    valid = [(k, c) for k, c in accepted if not hook_problem(engine, before, c.code, rows[i].source, lines)]
+    wrong_start = len(accepted) - len(valid) if valid else 0
+    pool = valid or accepted or ok  # if the engine rejects every attempt, the retry loop deals with them
+    literal = rows[i].literal
+    keep_literal = bool(literal) and _evaluate(engine, rows, i, literal)[0] and _only_if_turning_chain_counts(
+        engine, rows, i, literal)
+    if keep_literal:  # the literal reading joins the attempts as number 0
+        judged[0] = (True, False)
+        pool = [(0, replace(rows[i], status="ok", code=literal, origin="rules", note=""))] + pool
     groups: dict[str, list[tuple[int, RowResult]]] = {}
     for k, c in pool:
         groups.setdefault(_norm(c.code), []).append((k, c))
-    ranked = sorted(groups.values(), key=lambda g: (not judged[g[0][0]][1], -len(g), g[0][0]))
+    wanted = _norm(literal) if keep_literal else None  # the literal group comes first, then the count fit, then agreement
+    ranked = sorted(groups.values(), key=lambda g: (_norm(g[0][1].code) != wanted, not judged[g[0][0]][1], -len(g), g[0][0]))
 
     def pick(group, tail: str = "") -> RowResult:
         k, c = group[0]
+        if keep_literal and _norm(c.code) == wanted:
+            return replace(c, note="kept the literal reading: its count fits only if the turning chain counts")
         why = []
         if judged[k][1]:
             why.append("its count fits the stated count")
@@ -189,11 +221,13 @@ def _referee(engine: Engine, text: str, rows: list[RowResult], i: int, candidate
             why.append(f"{len(group)} of {n} attempts agree")
         if dropped:
             why.append(f"{dropped} rejected by the engine")
+        if wrong_start:
+            why.append(f"{wrong_start} started in the wrong chain from the hook")
         if tail:
             why.append(tail)
         return replace(c, note=f"{PICK_NOTE} {k} of {n}" + (": " + ", ".join(why) if why else ""))
 
-    if len(ranked) == 1:
+    if len(ranked) == 1 or keep_literal:  # the literal needs no judge: check_faithfulness reads it back later
         return pick(ranked[0]), cost
     guide = engine.notation_guide()
     for tried, group in enumerate(ranked):

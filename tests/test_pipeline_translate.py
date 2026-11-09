@@ -79,11 +79,14 @@ def test_prose_row_gets_empty_code(monkeypatch, tmp_path):
     assert (rows[1].status, rows[1].code) == ("ok", "")
 
 
-def test_empty_reply_is_cannot_and_not_cached(monkeypatch, tmp_path):
+def test_empty_reply_is_cannot_and_cached(monkeypatch, tmp_path):
     _, rows, _ = run(monkeypatch, tmp_path, ["", answer("18sc")])
     assert rows[1].status == "cannot"
     assert "no answer" in rows[1].note
-    assert len(list(tmp_path.glob("*.json"))) == 1  # only the good reply was cached
+    assert len(list(tmp_path.glob("*.json"))) == 2  # the empty reply is kept too
+    fake, rows, cost = run(monkeypatch, tmp_path, [])  # a repeat run asks nothing
+    assert fake.calls == [] and cost == 0
+    assert rows[1].status == "cannot"
 
 
 def test_invalid_reply_is_cannot(monkeypatch, tmp_path):

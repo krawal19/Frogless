@@ -7,7 +7,9 @@ why the reading is not allowed ("" when it is):
 2. Explicit placement. When the row says where its stitches go ("in next 2 sts", "in each st", "12 times",
    "in same st", "in ch-sp"), the reading may not change how many stitches of the row below it works into.
    The one exception is the side-total case: only the numbers beside plain stitches change ("7dc" between
-   corners meaning the whole side), and the text writes those numbers bare, beside the stitch itself.
+   corners meaning the whole side), and the text writes those numbers bare, beside the stitch itself. A reading that
+   also regroups the row (it starts in a corner space and wraps the last side) is compared by what each stitch type
+   comes to: fewer plain stitches only, chains and slip stitches the same.
 The comparison is the engine's (Engine.compare_readings, Engine.reading_drops_items); the text is read here.
 An engine that cannot list the items of the code gives no verdict and the reading is left to the other checks.
 """
@@ -15,8 +17,11 @@ An engine that cannot list the items of the code gives no verdict and the readin
 from collections.abc import Iterable
 
 from ..engine import Engine, stitch_family
-from ..patterns.placement import bare_number, chain_from_hook, named_families, states_placement
+from ..patterns.placement import bare_number, bare_numbers, chain_from_hook, named_families, states_placement
 from ..patterns.stated import turning_chain_stated
+
+
+_PLAIN = ("sc", "hdc", "dc", "dtr", "ttr", "trtr", "tr")  # the stitch families a side total can change
 
 
 def reading_problem(engine: Engine, before: str, literal: str, candidate: str, source: str) -> str:
@@ -34,13 +39,24 @@ def reading_problem(engine: Engine, before: str, literal: str, candidate: str, s
     diff = engine.compare_readings(literal, candidate, before)
     if diff is None or diff.consumes is None or diff.consumes[0] == diff.consumes[1] or not states_placement(source):
         return ""
-    if diff.same_shape and diff.number_changes and all(
+    if (diff.same_shape and diff.number_changes and all(
             stitch_family(kind) and bare_number(source, was, stitch_family(kind))
-            for kind, was, _ in diff.number_changes):
+            for kind, was, _ in diff.number_changes)) or _regrouped_side_totals(diff, source):
         return ""  # the side-total case: a bare number beside a side or group
     a, b = diff.consumes
     return (f"it moves the stitches: it works into {b} stitches of the row below but the row as written works into {a}, "
             "and the row says where its stitches go")
+
+
+def _regrouped_side_totals(diff, source: str) -> bool:
+    """The side-total case when the reading is also grouped differently (a round started in a corner space, its last
+    side wrapped round to the stitches before the first chain): the shapes differ, so compare what each stitch type
+    comes to. Only plain stitches may change, each only by coming to fewer, and the numbers the reading no longer has
+    must be bare numbers of the text (the side lengths); chains, slip stitches and skips come to the same."""
+    if diff.same_shape or not diff.family_changes:
+        return False
+    return (all(family in _PLAIN and now < was for family, was, now in diff.family_changes)
+            and all(number in bare_numbers(source, family) for family, number in diff.lost_counts if family in _PLAIN))
 
 
 def hook_problem(engine: Engine, before: str, code: str, source: str, pattern_lines: Iterable[str]) -> str:

@@ -439,3 +439,60 @@ def test_bob_changing_a_right_row_is_sent_back_and_with_no_insert_the_break_stay
 def test_an_insert_after_a_right_row_is_not_refused():
     entries = review.read_reply(json.dumps({"summary": "s", "rows": [insert_entry(after=1)]}))[1]
     assert vet("bob", rows(), entries, {0, 1}) == (entries, [])
+
+
+# ---- fixes for the later rounds: Bob is asked again about the pattern as fixed so far ----
+def _unconfirmed_second_row():
+    rs = rows()
+    rs[1] = replace(rs[1], origin="model")  # written by the model and never confirmed
+    return report_for(rs)
+
+
+FIX2 = entry(row=1, quote="2 dc in each", verdict="fix", code="12dc", fixed_text="Round 2: dc twice in each (12)")
+
+
+def test_bob_is_asked_again_while_the_fixed_pattern_still_does_not_simply_work(monkeypatch, tmp_path):
+    report = _unconfirmed_second_row()
+    assert report.verdict.kind == "breaks"
+    script = Script(alice=[[entry(verdict="reading")]], bob=[[FIX3], [FIX2]])
+    rep, _ = run(monkeypatch, tmp_path, script, report)
+    assert len(script.prompts["bob"]) == 2
+    assert "already include the fixes made so far" in script.prompts["bob"][1]
+    assert "Round 3: dc in each around (12)" in script.prompts["bob"][1]  # the second question is about the fixed pattern
+    assert [f.row for f in rep.verdict.fixes] == [2, 3] and rep.verdict.row == 2
+    assert rep.review.fixed_report.verdict.kind == "works"
+    assert rep.review.fixed_report.rows[1].source == "Round 2: dc twice in each (12)"
+
+
+def test_a_pattern_that_works_after_the_first_fix_is_not_asked_about_again(monkeypatch, tmp_path):
+    script = Script(alice=[[entry(verdict="reading")]], bob=[[FIX3], [FIX2]])
+    rep, _ = run(monkeypatch, tmp_path, script)
+    assert len(script.prompts["bob"]) == 1 and [f.row for f in rep.verdict.fixes] == [3]
+
+
+def test_a_later_fix_that_leaves_the_pattern_no_better_is_not_taken(monkeypatch, tmp_path):
+    useless = entry(row=0, quote="6 dc", verdict="fix", code="same", fixed_text="Round 1: 6 dc in the ring (6)")
+    script = Script(alice=[[entry(verdict="reading")]], bob=[[FIX3], [useless]])
+    rep, _ = run(monkeypatch, tmp_path, script, _unconfirmed_second_row())
+    assert [f.row for f in rep.verdict.fixes] == [3] and rep.verdict.kind == "breaks"
+    assert len(script.prompts["bob"]) == 2  # asked once more, then stopped: nothing improved
+
+
+def test_a_later_fix_on_a_row_already_fixed_goes_on_top_of_the_first():
+    base = rows()
+    first_fix = Entry(2, "2 dc in first", "fix", "12dc", "extra dc", "Round 3: dc in each around (12)")
+    first = review.Story("bob", kept=[first_fix], fixes=[first_fix])
+    first.rows = review._assemble(base, [first_fix])
+    again = Entry(2, "dc in each", "fix", "12dc", "wording", "Round 3: dc around (12)")
+    insert = Entry(0, "", "insert", "same", "missing", inserted_text="Round 1b: 6 dc (6)", inserted_code="6dc")
+    more = review.Story("bob", kept=[again, insert], fixes=[again, insert])
+    more.rows = review._assemble(first.rows, [again, insert])
+    merged = review._merge(first, more, base)
+    by_row = {e.row: e for e in merged.kept if e.verdict == "fix"}
+    assert by_row[2].fixed_text == "Round 3: dc around (12)" and by_row[2].explanation == "extra dc"
+    assert [e.row for e in merged.kept if e.verdict == "insert"] == [0]
+    assert [r.source for r in review._assemble(base, merged.kept)] == [r.source for r in more.rows]
+    clash = Entry(0, "", "insert", "same", "again", inserted_text="Round 1c: 6 dc (6)", inserted_code="6dc")
+    again_more = review.Story("bob", kept=[clash], fixes=[clash])
+    again_more.rows = review._assemble(more.rows, [clash])
+    assert review._merge(merged, again_more, base) is None  # two inserts after the same row cannot be told apart

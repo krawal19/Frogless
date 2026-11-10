@@ -19,6 +19,7 @@ from ..base import (
 )
 
 from .spaces import SpaceError, resolve_spaces
+from .wrap import complete_wraps
 
 BRIDGE = Path(__file__).with_name("bridge.js")
 NOTATION_GUIDE = Path(__file__).with_name("notation_guide.md")
@@ -33,6 +34,11 @@ SYNTHETIC_SOURCES = {"make a magic ring.", "tie_up"}
 RESTART_MARKER = "__restart__"
 # A code line that is only a directive: it changes colour or moves the working point, and makes no stitch.
 _DIRECTIVE_LINE = re.compile(r"^\s*(?:COLOR\s*:.*|start_(?:anew|a_new_chain|at)(?:@\[[^\]]*\]|@\w+|\.\w+)*)\s*$")
+
+
+def _prepare(code: str) -> str:
+    """The code as the engine is given it: `@sp` named, and the last side of a round that starts in a corner space wrapped."""
+    return complete_wraps(resolve_spaces(code))
 
 
 class CrochetEngine(Engine):
@@ -63,7 +69,7 @@ class CrochetEngine(Engine):
 
     def check(self, code: str) -> CheckResult:
         try:
-            code = resolve_spaces(code)
+            code = _prepare(code)
         except SpaceError as e:
             return CheckResult(ok=False, error=CheckError(message=str(e)))
         out = self._run_bridge({"op": "check", "code": _chain_after_turn(code)})
@@ -81,7 +87,7 @@ class CrochetEngine(Engine):
         return result
 
     def resolve(self, code: str) -> str:
-        return resolve_spaces(code)
+        return _prepare(code)
 
     def row_items(self, code: str) -> list[RowItem] | None:
         return _row_items(code)
@@ -140,12 +146,12 @@ class CrochetEngine(Engine):
     def render(self, code: str, out_dir, name: str = "render") -> dict:
         from .render import render_code
 
-        return render_code(self.repo, resolve_spaces(code), out_dir, name)
+        return render_code(self.repo, _prepare(code), out_dir, name)
 
     def render_many(self, items, out_dir) -> list[dict]:
         from .render import render_many
 
-        return render_many(self.repo, [(n, resolve_spaces(c), *rest) for n, c, *rest in items], out_dir)
+        return render_many(self.repo, [(n, _prepare(c), *rest) for n, c, *rest in items], out_dir)
 
     def visual_samples(self) -> list[dict]:
         return json.loads(VISUAL_SAMPLES.read_text(encoding="utf-8"))

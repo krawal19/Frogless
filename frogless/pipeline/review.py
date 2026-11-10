@@ -33,6 +33,9 @@ A story passes only if all of that holds. Then:
 - Both fail: both are asked again, told the referee's reasons, up to MAX_ATTEMPTS in all; then the pipeline's
   own verdict stands.
 Fixes that are not needed for the story to pass are dropped, so the ones shown are the smallest set.
+When Bob passes but the fixed pattern still does not simply work (rows only counted, or never confirmed), Bob is
+asked again about the pattern as fixed so far, up to MAX_MORE more times; what he fixes next is merged into his
+fixes if the pattern then works better (_more_fixes).
 Rows counted by the ledger have no engine code to check and are never changed.
 """
 
@@ -483,20 +486,111 @@ def _listing(rows: list[RowResult]) -> str:
     return "\n".join(out)
 
 
-def _prompt(guide: str, text: str, report: PatternReport, who: str, reasons: list[str]) -> str:
+def _prompt(guide: str, text: str, report: PatternReport, who: str, reasons: list[str], later: bool = False) -> str:
     feedback = ""
     if reasons:
         feedback = ("\nYour previous answer was checked by a program and rejected:\n"
                     + "\n".join(f"- {r}" for r in reasons)
                     + "\nGive a complete new answer that avoids these problems.\n")
+    if later:
+        feedback = ("\nThe pattern and rows above already include the fixes made so far. Check the rest of the pattern, "
+                    "the later rounds above all, for any mistake that is still there; leave out the rows that are right.\n")
     return PROMPT.read_text(encoding="utf-8").format(
         guide=guide, task=TASKS[who].read_text(encoding="utf-8").strip(), original=text.strip(),
         rows=_listing(report.rows), finding=_finding(report), feedback=feedback)
 
 
-def _ask(guide: str, text: str, report: PatternReport, who: str, reasons: list[str], cache_dir: Path) -> dict:
-    reply, cost = ask_cached(_prompt(guide, text, report, who, reasons), ROLE, SCHEMAS[who], cache_dir, "review")
+def _ask(guide: str, text: str, report: PatternReport, who: str, reasons: list[str], cache_dir: Path,
+         later: bool = False) -> dict:
+    reply, cost = ask_cached(_prompt(guide, text, report, who, reasons, later), ROLE, SCHEMAS[who], cache_dir, "review")
     return {"text": reply["text"], "cost_usd": cost}
+
+
+# ---- fixes for the later rounds ----
+MAX_MORE = 2  # extra rounds of asking Bob about the pattern as fixed so far
+_KIND_RANK = {"works": 0, "works_counts_only": 1, "works_unverified": 1}
+
+
+def _doubt(story: Story) -> tuple[int, int]:
+    """How unsure the fixed pattern still is: (rank of its verdict, rows nothing confirmed). Lower is better."""
+    v = story.verdict
+    rank = _KIND_RANK.get(v.kind, 2)
+    open_rows = {r.index for r in story.rows if not r.synthetic and r.ledger_ok is None
+                 and (r.status == "cannot" or r.faithful is False)}
+    return rank, len(open_rows) + len(v.rows) + len(v.counted)
+
+
+def _fixed_text(text: str, rows: list[RowResult], entries: list[Entry]) -> str:
+    """The pattern's text with the fixes applied (a row whose wording the translator changed stays as it was)."""
+    for e in entries:
+        old = rows[e.row].source
+        if e.verdict == "fix" and old in text:
+            text = text.replace(old, e.fixed_text, 1)
+    for e in sorted(_inserts(entries), key=lambda i: -i.row):
+        old = rows[e.row].source
+        text = text.replace(old, old + "\n" + e.inserted_text, 1) if old in text else text + "\n" + e.inserted_text
+    return text
+
+
+def _merge(first: Story, more: Story, rows: list[RowResult]) -> Story | None:
+    """`first`'s changes together with `more`'s, which were made on top of them. `more`'s entries are moved back to the
+    pattern's own rows. None when they cannot be told apart from the rows (two inserts after the same row)."""
+    origin = []  # position in first.rows -> ("row", n) or ("insert", n after row n)
+    for n in range(len(rows)):
+        origin.append(("row", n))
+        origin += [("insert", n)] * sum(1 for i in _inserts(first.kept) if i.row == n)
+    if len(origin) != len(first.rows):
+        return None
+    merged = list(first.kept)
+    for e in more.kept:
+        if not 0 <= e.row < len(origin):
+            return None
+        kind, n = origin[e.row]
+        row = first.rows[e.row]
+        code = row.code if _keeps(e) else e.code
+        if e.verdict == "insert":
+            if any(i.row == n for i in _inserts(merged)):
+                return None
+            merged.append(Entry(n, "", "insert", "same", e.explanation, inserted_text=e.inserted_text,
+                                inserted_code=e.inserted_code))
+            continue
+        if kind == "insert":
+            at = next(i for i, x in enumerate(merged) if x.verdict == "insert" and x.row == n)
+            merged[at] = replace(merged[at], inserted_code=code,
+                                 inserted_text=e.fixed_text if e.verdict == "fix" else merged[at].inserted_text)
+            continue
+        at = next((i for i, x in enumerate(merged) if x.verdict != "insert" and x.row == n), None)
+        if at is None:
+            merged.append(replace(e, row=n, code=code))
+        else:  # the row was changed already: the later change goes on top
+            old = merged[at]
+            merged[at] = replace(old, code=code, verdict="fix" if "fix" in (old.verdict, e.verdict) else e.verdict,
+                                 fixed_text=e.fixed_text or old.fixed_text,
+                                 explanation=old.explanation if old.verdict == "fix" else e.explanation)
+    final = _assemble(rows, merged)
+    if [(r.code, r.source) for r in final] != [(r.code, r.source) for r in more.rows]:
+        return None
+    return replace(more, kept=merged, fixes=[e for e in merged if e.verdict in FIXING], reasons=[])
+
+
+def _more_fixes(engine: Engine, text: str, rows: list[RowResult], bob: Story, guide: str, cache_dir: Path,
+                faithful_cache_dir: Path, rounds: int = MAX_MORE) -> tuple[Story, float]:
+    """Bob's story, extended: while the fixed pattern still does not simply work, ask Bob again about it (up to
+    `rounds` times) and take what he fixes next, if the pattern then works better. Returns (story, cost)."""
+    cost = 0.0
+    for _ in range(rounds):
+        if _doubt(bob) == (0, 0):
+            break
+        fixed_text = _fixed_text(text, rows, bob.kept)
+        fixed = _fixed_report(fixed_text, bob)
+        more = evaluate(engine, fixed_text, bob.rows, "bob", _ask(guide, fixed_text, fixed, "bob", [], cache_dir, True),
+                        faithful_cache_dir)
+        cost += more.cost
+        merged = _merge(bob, more, rows) if more.passed and more.fixes else None
+        if merged is None or _doubt(merged) >= _doubt(bob):
+            break
+        bob = merged
+    return bob, cost
 
 
 def _numbers(engine: Engine, story: Story) -> dict[int, int]:
@@ -560,6 +654,9 @@ def review_report(engine: Engine, text: str, report: PatternReport, *, cache_dir
             break
         reasons = {"alice": alice.reasons, "bob": bob.reasons}
 
+    if bob and bob.passed and not alice.literal:  # the fixed pattern may still hold mistakes in later rounds
+        bob, spent = _more_fixes(engine, text, rows, bob, guide, cache_dir, faithful_cache_dir)
+        total += spent
     passed = alice.passed or bool(bob and bob.passed)
     review = Review("none", attempts, alice.summary, bob.summary if bob else "", alice.passed,
                     bool(bob and bob.passed), [] if passed else alice.reasons + (bob.reasons if bob else []))

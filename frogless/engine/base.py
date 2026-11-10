@@ -61,6 +61,10 @@ class ReadingDiff:
     same_shape: bool  # same items in the same order and groups; only the numbers beside them differ
     number_changes: list[tuple[str, int, int]]  # (kind, literal count, candidate count) for each changed number
     consumes: tuple[int, int] | None  # stitches of the earlier rows each works into; None if the engine cannot say
+    family_changes: list[tuple[str, int, int]] = field(default_factory=list)
+    # (stitch family, literal total, candidate total) for each family whose total differs, however the items are grouped
+    lost_counts: list[tuple[str, int]] = field(default_factory=list)
+    # (stitch family, number) for each number written beside a stitch ("7dc") that no item of the candidate has any more
 
 
 _FAMILY = re.compile(r"^(?:fp|bp)?(ss|sc|hdc|dc|dtr|ttr|trtr|tr|ch|sk)")
@@ -70,6 +74,14 @@ def stitch_family(kind: str) -> str:
     """The stitch a kind is a form of: "dc2inc" and "dcfl" are "dc"; "" for an unknown kind."""
     m = _FAMILY.match(kind)
     return m.group(1) if m else ""
+
+
+def _family_totals(items: list[RowItem]) -> Counter:
+    """How many of each stitch family a row's items make (repeats counted)."""
+    totals: Counter = Counter()
+    for i in items:
+        totals[stitch_family(i.kind)] += i.count * i.times
+    return totals
 
 
 @dataclass
@@ -106,9 +118,11 @@ class Engine(ABC):
         """Turn written pattern text into engine code, line by line."""
 
     def resolve(self, code: str) -> str:
-        """Engine code with "into the next chain space" (@sp) written out as named spaces.
+        """Engine code the way the engine is given it: "into the next chain space" (@sp) written out as named spaces,
+        and the last side of a round that starts in a corner space written out as a wrap onto the stitches before the
+        round below's first chain (the same stitches, only where the last ones go is spelled out).
 
-        Raises ValueError when an @sp has no space to reach. Code without @sp comes back unchanged.
+        Raises ValueError when an @sp has no space to reach. Code that needs neither comes back unchanged.
         """
         return code
 
@@ -150,7 +164,12 @@ class Engine(ABC):
         same_shape = [(i.kind, i.times) for i in lit] == [(i.kind, i.times) for i in cand]
         changes = [(a.kind, a.count, b.count) for a, b in zip(lit, cand) if same_shape and a.count != b.count]
         a, b = self.consumes(before, literal), self.consumes(before, candidate)
-        return ReadingDiff(dropped, same_shape, changes, (a, b) if a is not None and b is not None else None)
+        lit_totals, cand_totals = _family_totals(lit), _family_totals(cand)
+        family_changes = [(f, lit_totals[f], cand_totals[f]) for f in sorted(lit_totals | cand_totals)
+                          if lit_totals[f] != cand_totals[f]]
+        lost = Counter((stitch_family(i.kind), i.count) for i in lit) - Counter((stitch_family(i.kind), i.count) for i in cand)
+        return ReadingDiff(dropped, same_shape, changes, (a, b) if a is not None and b is not None else None,
+                           family_changes, sorted((f, n) for (f, n), times in lost.items() if n > 1 for _ in range(times)))
 
     def reading_drops_items(self, literal: str, candidate: str, before: str = "", named: tuple[str, ...] = ()) -> bool:
         """True when `candidate` is `literal` with stitches or chains removed: a strict sub-multiset of its items,

@@ -47,9 +47,10 @@ def states_placement(source: str) -> bool:
     return bool(_PLACED.search(source))
 
 
-def bare_number(source: str, number: int, family: str) -> bool:
-    """True when the text has `number` written right beside the stitch itself ("7dc", "7 dc"), as the length of a
-    side or group, and not as a place to work ("dc in next 7 sts", "in each of 7 dc")."""
+def bare_numbers(source: str, family: str) -> set[int]:
+    """The numbers the text has written right beside the stitch itself ("7dc", "7 dc") for `family`, as the length of
+    a side or group, and not as a place to work ("dc in next 7 sts", "in each of 7 dc")."""
+    found = set()
     for m in _NAMED.finditer(source):
         word = re.sub(r"\s+", " ", m.group(1).lower())
         fam = "ss" if word in _SLIP or word.startswith("sl") else _STITCH_WORDS.get(word)
@@ -57,13 +58,19 @@ def bare_number(source: str, number: int, family: str) -> bool:
             continue
         before = source[:m.start()]
         number_before = re.search(r"(?<![\d.])(\d+)\s*$", before)
-        if not number_before or int(number_before.group(1)) != number:
+        if not number_before:
             continue
         lead = before[:number_before.start()].lower().rstrip()
         if re.search(r"\b(?:next|of|each|every|into|in)$", lead):
             continue  # "in next 7 dc", "in each of 7 dc"
-        return True
-    return False
+        found.add(int(number_before.group(1)))
+    return found
+
+
+def bare_number(source: str, number: int, family: str) -> bool:
+    """True when the text has `number` written right beside the stitch itself ("7dc", "7 dc"), as the length of a
+    side or group, and not as a place to work ("dc in next 7 sts", "in each of 7 dc")."""
+    return number in bare_numbers(source, family)
 
 
 _SEGMENT_BREAK = re.compile(r"[,.;]")

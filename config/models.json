@@ -4,7 +4,7 @@
     "meta": {
       "base_url": "https://api.meta.ai/v1",
       "api_key_env": "META_API_KEY",
-      "timeout_s": 120,
+      "timeout_s": 400,
       "max_retries": 3
     }
   },

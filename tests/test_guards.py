@@ -168,3 +168,34 @@ def test_a_translation_that_merged_the_repeated_phrase_is_asked_again_and_replac
                                                             "usage": {"output_tokens": 5}, "cost_usd": 0.0})
     kept, _ = restore_repeats(engine, "y\n" + TWICE, rows, 1, tmp_path / "other")
     assert kept.code == ONCE_CODE
+
+
+# ---- a side-total reading that also regroups the round (it starts in a corner space and wraps its last side) ----
+CHAIN_RING = "(4ch,ss@[%,0]).R_1\n(dc.S,2ch.A,3dc,2ch.B,3dc,2ch.C,3dc,2ch.D,2dc)@R_1"
+SIDES = "Round 2: slst in ch2 space, ch5, 2dc in same space, 7dc, (2dc, ch2, 2dc, 7dc) 3 times in each corner, dc in last corner (28dc)"
+SIDES_LITERAL = "(dc.W,2ch.E,2dc)@A,7dc,(2dc,2ch.F,2dc)@B,7dc,(2dc,2ch.G,2dc)@C,7dc,(2dc,2ch.H,2dc)@D,7dc,dc@A"
+SIDES_TOTALS = "(dc.W,2ch.E,2dc)@A,3dc,(2dc,2ch.F,2dc)@B,3dc,(2dc,2ch.G,2dc)@C,3dc,(2dc,2ch.H,2dc)@D,2dc,dc@S,dc@A"
+
+
+def test_the_family_totals_are_compared_however_the_items_are_grouped(engine):
+    diff = engine.compare_readings(SIDES_LITERAL, SIDES_TOTALS, CHAIN_RING)
+    assert not diff.same_shape
+    assert diff.family_changes == [("dc", 44, 28)]
+
+
+def test_the_side_total_reading_with_a_wrapped_last_side_is_allowed(engine):
+    assert reading_problem(engine, CHAIN_RING, SIDES_LITERAL, SIDES_TOTALS, SIDES) == ""
+
+
+def test_a_regrouped_reading_is_still_refused_when_the_number_is_a_place_to_work(engine):
+    source = SIDES.replace("7dc", "dc in next 7 dc")
+    assert "moves the stitches" in reading_problem(engine, CHAIN_RING, SIDES_LITERAL, SIDES_TOTALS, source)
+
+
+def test_a_regrouped_reading_may_not_change_the_chains_or_come_to_more_stitches(engine):
+    fewer_chains = SIDES_TOTALS.replace("2ch.F", "ch.F")
+    assert "moves the stitches" in reading_problem(engine, CHAIN_RING, SIDES_LITERAL, fewer_chains, SIDES)
+    wider = SIDES_TOTALS.replace(",3dc,", ",9dc,")  # sides longer than the literal ones, not a side total
+    diff = engine.compare_readings(SIDES_LITERAL, wider, CHAIN_RING)
+    assert diff.family_changes and diff.family_changes[0][2] > diff.family_changes[0][1]
+    assert "moves the stitches" in reading_problem(engine, CHAIN_RING, SIDES_LITERAL, wider, SIDES)

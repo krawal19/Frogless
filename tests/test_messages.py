@@ -108,3 +108,12 @@ def test_chains_left_out_fallback_is_flagged():
     interp = Verdict("works", "ok", chains_left_out=True,
                      interpreted=[Interpreted(2, "Round 2: sc in the gap (12)", "sc in each of the 12 sts", "no gap")])
     assert user_message(report(interp)).endswith("⚠ The counts only work if the chains are left out.")
+
+
+def test_an_inserted_round_takes_its_own_number_not_the_reviewers_label():
+    from frogless.pipeline.messages import _labelled
+    from frogless.pipeline.report import Fix
+
+    for written in ("Round 1b: 2 sc in each st around (12)", "Rnd 2: 2 sc in each st around (12)",
+                    "2 sc in each st around (12)"):
+        assert _labelled(Fix(2, "", written, "missing", insert=True), "Round") == "Round 2: 2 sc in each st around (12)"

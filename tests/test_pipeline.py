@@ -12,7 +12,8 @@ def test_readable_circle_works():
 
 
 def test_unreadable_row_without_a_model():
-    report = check_pattern(CIRCLE + "\nRound 3: *sc, inc; rep from * around (18)", use_model=False)
+    # 12 stitches are not whole repeats of 5, so the wording is left for the model
+    report = check_pattern(CIRCLE + "\nRound 3: *sc in next 4 sts, inc; rep from * around (15)", use_model=False)
     assert report.verdict.kind == "unreadable"
     assert any(r.status == "flagged" for r in report.rows)
 

@@ -9,6 +9,7 @@ from ..models.client import ProviderError
 from ..patterns.repeats import RepeatNote, merge_repeat_chains
 from ..patterns.sizes import split_sizes
 from ..patterns.terms import Terms, detect_terms, to_us
+from ..patterns.wording import normalise_wording
 from .faithful import check_faithfulness
 from .ledger import count_ledger
 from .reconcile import reconcile_counts
@@ -43,6 +44,7 @@ def check_pattern(text: str, *, engine: Engine | None = None, use_model: bool = 
     if found.kind == "UK":
         text = to_us(text)
     text, repeat_notes = merge_repeat_chains(text)  # a chain written twice across a repeat's end is one chain
+    text, wording_notes = normalise_wording(text)  # wordings the rules translator misreads, written out plainly
     engine = engine or get_engine()
     t = time.perf_counter()
     rows, cost = rule_rows(engine, text), 0.0
@@ -72,6 +74,7 @@ def check_pattern(text: str, *, engine: Engine | None = None, use_model: bool = 
     report = PatternReport(text=original, rows=rows, cost_usd=cost, terms=found)
     if note:
         report.notes.append(note)
+    report.notes.extend(wording_notes)
     report.check = engine.check(report.code) if report.code else None
     report.verdict, report.stated, report.computed = decide_verdict(engine, text, rows, report.check)
     t = lap("engine_verdict", t)

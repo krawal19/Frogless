@@ -15,6 +15,7 @@ from pathlib import Path
 from ..engine import get_engine
 from ..patterns.repeats import merge_repeat_chains
 from ..patterns.terms import to_us
+from ..patterns.wording import normalise_wording
 from .messages import change_text, user_message
 from .report import PatternReport, RowResult
 from .verdict import _map_rows
@@ -360,7 +361,8 @@ def corrected_pattern(report: PatternReport) -> str | None:
     bases = [report.text]
     if report.terms and report.terms.kind == "UK":
         bases.append(to_us(report.text))
-    for base in bases + [merge_repeat_chains(b)[0] for b in bases]:
+    merged = [merge_repeat_chains(b)[0] for b in bases]
+    for base in bases + merged + [normalise_wording(b)[0] for b in merged]:
         lines = _try_apply(base, v.fixes)
         if lines is not None:
             return "\n".join(lines)

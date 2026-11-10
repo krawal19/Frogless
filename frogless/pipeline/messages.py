@@ -92,10 +92,13 @@ def change_text(original: str, fixed: str) -> str:
     return parts[0] if len(parts) == 1 else ", ".join(parts[:-1]) + ", and " + parts[-1]
 
 
+_ANY_LABEL = re.compile(r"^\s*(?:rows?|rounds?|rnds?|r)\s*\d+[a-z]?\s*[:.)]\s*", re.IGNORECASE)  # also "Round 1b:"
+
+
 def _labelled(f: Fix, word: str) -> str:
-    """An inserted row as it would be written, with its label."""
-    text = f.fixed_text.strip()
-    return text if _LABEL.match(text) else f"{word} {f.row}: {text}"
+    """An inserted row as it would be written, labelled with the number it takes (not the reviewer's own label)."""
+    text = _ANY_LABEL.sub("", f.fixed_text.strip(), count=1)
+    return f"{word} {f.row}: {text}"
 
 
 def _fix_phrase(f: Fix, word: str) -> str:

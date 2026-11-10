@@ -19,6 +19,7 @@ from ..base import (
 )
 
 from .spaces import SpaceError, resolve_spaces
+from .oval import label_foundation
 from .wrap import complete_wraps
 
 BRIDGE = Path(__file__).with_name("bridge.js")
@@ -37,8 +38,9 @@ _DIRECTIVE_LINE = re.compile(r"^\s*(?:COLOR\s*:.*|start_(?:anew|a_new_chain|at)(
 
 
 def _prepare(code: str) -> str:
-    """The code as the engine is given it: `@sp` named, and the last side of a round that starts in a corner space wrapped."""
-    return complete_wraps(resolve_spaces(code))
+    """The code as the engine is given it: `@sp` named, the last side of a round that starts in a corner space wrapped,
+    and the first chain of the foundation chain labelled when an oval's row works back along it."""
+    return complete_wraps(resolve_spaces(label_foundation(code)))
 
 
 class CrochetEngine(Engine):

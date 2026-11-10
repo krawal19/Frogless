@@ -103,6 +103,7 @@ class PatternReport:
     computed: dict[int, int] = field(default_factory=dict)  # row number -> count the engine makes
     cost_usd: float = 0.0  # model spend for this check
     notes: list[str] = field(default_factory=list)  # anything else worth telling the user
+    prose: list[str] = field(default_factory=list)  # written lines that are not rounds (stuffing, sewing...), kept as notes
     shape: list = field(default_factory=list)  # ShapeFinding hints about the finished piece; never change the verdict
     terms: Terms | None = None  # US or UK stitch names, as detected or chosen
     review: Review | None = None  # the Alice-and-Bob review, if it ran

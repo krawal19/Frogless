@@ -188,6 +188,8 @@ def _note_blocks(report) -> list[dict]:
         else:
             add("Note", n, "yellow")
     _terms_blocks(report, add)
+    if report.prose:
+        add("Kept as notes, not checked", " / ".join(report.prose), "grey")
     if v:
         # the headline already says "works only if ...": the note says why, not the same sentence again
         conditional = v.reading == messages.TURN_COUNTS or v.chains_left_out
@@ -224,6 +226,7 @@ def describe(report, label: str = "") -> dict:
         "user_message": messages.user_message(report),
         "fix_lines": messages.fix_lines(report),
         "notes": list(report.notes),
+        "prose": list(report.prose),
         "note_blocks": _note_blocks(report),
         "shape_lines": messages.shape_lines(report),
         "rows": table,

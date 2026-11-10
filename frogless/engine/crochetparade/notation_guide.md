@@ -77,6 +77,16 @@ Foundation chain on its own line: `12ch`. Then:
 - "..., ch 3, turn" at the end of a row belongs to the next row: write it at the start of the next row (`3ch,...`).
 - Every turned row starts with its turning chain, even when the English does not repeat it: after a row that ended "ch 2, turn", "Rows 2-8: hdc in each st across" is `2ch,...` on every one of those rows. Use the same height as the last turning chain the pattern wrote.
 
+## Ovals (round the end of the foundation chain and back along its other side)
+
+"Ch 13. Row 1: sc in 2nd ch from hook, sc in next 10 ch, 3 sc in last ch, rotate, sc in next 10 ch on the other side, 2 sc in last ch (26)" is NOT a straight row: the second half goes back along the other side of the same foundation chain. Write it like this:
+
+- Label the FIRST chain of the foundation chain, on its own line: `ch.A,12ch` (13 chains in all). Later rounds need no label.
+- The row: the first half as for any foundation row (`sk,11sc,sc3inc`: the skipped chain, the stitches, then the 3 sc in the last chain), then the whole other side as ONE group worked into that label: `(10sc,sc2inc)@A`. List its stitches in the order the English works them; do not write `rotate` or `turn` for it.
+- An oval is worked in the round: no `turn` after the row, and the rounds after it follow with no `ch`.
+- The program does not place the stitches of that group, so the stated count is what checks them: write exactly the stitches the English works along the other side, no more, no fewer.
+- Never put the other-side stitches after the first half as a straight run on a longer chain, and never change the length of the foundation chain to make them fit.
+
 ## Labels and chain spaces
 
 Label a stitch or group with `.Name`, then work into it with `@Name` on a later line: `2ch.A` then `(3dc,2ch,3dc)@A`.
@@ -225,4 +235,16 @@ ch,14sc
 ```
 ```counts
 11 14 14
+```
+
+```english
+Ch 9. Row 1: sc in 2nd ch from hook, sc in next 6 ch, 3 sc in last ch, rotate, sc in next 6 ch on the other side, 2 sc in last ch (18). Row 2: sc in each st around (18).
+```
+```code
+ch.A,8ch
+sk,7sc,sc3inc,(6sc,sc2inc)@A
+18sc
+```
+```counts
+18 18
 ```

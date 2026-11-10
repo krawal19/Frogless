@@ -25,7 +25,7 @@ from pathlib import Path
 from ..engine import Engine
 from ..models.client import ROOT
 from ..patterns.placement import repeated_phrases
-from .guards import hook_problem, reading_problem
+from .guards import hook_problem, oval_problem, reading_problem
 from .report import RowResult
 from .translate import CACHE_DIR as TRANSLATE_CACHE_DIR
 from .translate import PICK_NOTE, ask_cached, retranslate_row
@@ -91,14 +91,16 @@ def _rejection(engine: Engine, rows: list[RowResult], i: int) -> str:
     """Why the engine rejects row i's code (with the rows before it), or "" if it accepts it.
     Only invalid code counts; a wrong stitch count is left to the verdict. A model's foundation row that starts in
     another chain than the one the row names ("hdc in 3rd ch from hook") is rejected too: it would make a short
-    stated count fit by working one more stitch."""
+    stated count fit by working one more stitch. So is a row that says to rotate or to work along the other side of the
+    foundation chain (an oval) and is written as a straight run, whoever wrote it: it would need a longer chain."""
+    before = "\n".join(r.code for r in rows[:i] if r.code)
     if rows[i].origin != "model":
-        return ""
+        return oval_problem(engine, before, rows[i].code, rows[i].source)
     check = engine.check("\n".join(r.code for r in rows[:i + 1] if r.code))
     if check.error is not None and check.error.kind == "invalid":
         return check.error.message
-    return hook_problem(engine, "\n".join(r.code for r in rows[:i] if r.code), rows[i].code, rows[i].source,
-                        [r.source for r in rows if not r.synthetic])
+    return (hook_problem(engine, before, rows[i].code, rows[i].source, [r.source for r in rows if not r.synthetic])
+            or oval_problem(engine, before, rows[i].code, rows[i].source))
 
 
 def _english(engine: Engine, rows: list[RowResult], i: int) -> list[str]:

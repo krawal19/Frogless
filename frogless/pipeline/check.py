@@ -6,8 +6,10 @@ from dataclasses import replace
 
 from ..engine import Engine, get_engine
 from ..models.client import ProviderError
+from ..patterns.placement import says_other_side
 from ..patterns.repeats import RepeatNote, merge_repeat_chains
 from ..patterns.sizes import split_sizes
+from ..patterns.structure import split_pieces
 from ..patterns.terms import Terms, detect_terms, to_us
 from ..patterns.wording import normalise_wording
 from .faithful import check_faithfulness
@@ -22,7 +24,7 @@ from .verdict import decide_verdict
 
 def check_pattern(text: str, *, engine: Engine | None = None, use_model: bool = True,
                   faithfulness: bool = True, count_retry: bool = True, ledger: bool = True,
-                  terms: str = "auto", review: bool = True) -> PatternReport:
+                  terms: str = "auto", review: bool = True, terms_text: str | None = None) -> PatternReport:
     """Translate, verify and judge a pattern. use_model=False makes no model calls.
 
     ledger: count the rows the engine cannot model (read by the model, added up by our code) instead of
@@ -30,6 +32,7 @@ def check_pattern(text: str, *, engine: Engine | None = None, use_model: bool = 
     review: when the pattern does not simply work, ask Alice ("it is right as written") and Bob ("it has a mistake")
     and let code referee them; may suggest re-checked fixes. Part of the model steps, so it needs use_model.
     terms: "auto" detects US or UK stitch names; "US" or "UK" chooses. UK is converted to US first.
+    terms_text: the text to detect the terms from when it is more than `text` (the whole pattern, for one piece of it).
     """
     started = time.perf_counter()
     timings = dict.fromkeys(("translate", "faithfulness", "reconcile", "ledger", "engine_verdict", "review", "shape"), 0.0)
@@ -40,7 +43,7 @@ def check_pattern(text: str, *, engine: Engine | None = None, use_model: bool = 
         return now
 
     original = text
-    found, note = _read_terms(text, terms)
+    found, note = _read_terms(terms_text or text, terms)
     if found.kind == "UK":
         text = to_us(text)
     text, repeat_notes = merge_repeat_chains(text)  # a chain written twice across a repeat's end is one chain
@@ -85,7 +88,8 @@ def check_pattern(text: str, *, engine: Engine | None = None, use_model: bool = 
             report.notes.append(_review_failed_note(e))
         t = lap("review", t)
     if report.check:  # hints about the finished piece; they never change the verdict
-        report.shape = check_shape(report.check.rows, from_ring=starts_from_ring(text), flat=meant_flat(text))
+        report.shape = check_shape(report.check.rows, from_ring=starts_from_ring(text), flat=meant_flat(text),
+                                   oval=any(says_other_side(line) for line in text.splitlines()))
         v = report.verdict
         if v and v.kind == "breaks" and v.row is not None:  # corners of a round that breaks (or after it) are not to be trusted
             report.shape = [f for f in report.shape
@@ -127,9 +131,33 @@ def _with_repeat_notes(rows, notes: list[RepeatNote]):
     return rows
 
 
+def check_pattern_pieces(text: str, **kw) -> list[tuple[str, PatternReport]]:
+    """check_pattern() for each piece of a pattern, each on its own (its rows count from 1); one (label, report) for a
+    one-piece pattern. The label is the piece's header ("Piece N" if it has none). The text is first put in order
+    (structure.py: one round per line, labels with colons, prose kept as notes), also for a single piece."""
+    pieces = [p for p in split_pieces(text) if p.text.strip()]
+    if not pieces:  # nothing but prose: the checker says what it makes of that
+        return [("Piece 1", check_pattern(text, **kw))]
+    out = []
+    for piece in pieces:
+        report = check_pattern(piece.text, terms_text=text, **kw)
+        report.notes.extend(piece.readings)
+        report.prose = list(piece.notes)
+        out.append((piece.label, report))
+    return out
+
+
 def check_pattern_sizes(text: str, **kw) -> list[tuple[str, PatternReport]]:
-    """check_pattern() for each size of a multi-size pattern; one (label, report) for a single size."""
-    return [(label, check_pattern(part, **kw)) for label, part in split_sizes(text)]
+    """check_pattern() for each piece of each size of a pattern; one (label, report) for one size of one piece.
+    The label is the size's, or the piece's header, or "size: piece" when the pattern has both."""
+    sizes = split_sizes(text)
+    out = []
+    for size_label, part in sizes:
+        pieces = check_pattern_pieces(part, **kw)
+        for piece_label, report in pieces:
+            label = size_label if len(pieces) == 1 else piece_label if len(sizes) == 1 else f"{size_label}: {piece_label}"
+            out.append((label, report))
+    return out
 
 
 def _read_terms(text: str, terms: str) -> tuple[Terms, str]:

@@ -37,6 +37,8 @@ When Bob passes but the fixed pattern still does not simply work (rows only coun
 asked again about the pattern as fixed so far, up to MAX_MORE more times; what he fixes next is merged into his
 fixes if the pattern then works better (_more_fixes).
 Rows counted by the ledger have no engine code to check and are never changed.
+The foundation chain of an oval (a later row says to rotate or to work along its other side) is never lengthened or
+shortened by a fix: the mistake is in the counts of a later row.
 """
 
 import json
@@ -45,10 +47,11 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 from ..engine import Engine
+from ..patterns.placement import says_other_side
 from ..models.client import ROOT
 from .faithful import CACHE_DIR as FAITHFUL_CACHE_DIR
 from .faithful import _english, _judge, _with_answer
-from .guards import reading_problem
+from .guards import oval_problem, reading_problem
 from .report import Fix, PatternReport, Review, RowResult, Verdict
 from .translate import _rows_listing, ask_cached
 from .verdict import _map_rows, counting_fits, decide_verdict
@@ -218,6 +221,9 @@ def settled_rows(engine: Engine, text: str, rows: list[RowResult]) -> set[int]:
             and m.result.ledger_ok is None}
 
 
+_CHAIN_ROW = re.compile(r"^\W*(?:ch|chain)\s*\d+\W*$", re.IGNORECASE)
+
+
 def vet(who: str, rows: list[RowResult], entries: list[Entry],
         settled: frozenset[int] | set[int] = frozenset()) -> tuple[list[Entry], list[str]]:
     """The entries that change something and pass the referee's first look, and why the others do not."""
@@ -257,6 +263,11 @@ def vet(who: str, rows: list[RowResult], entries: list[Entry],
             reasons.append(f"Row {e.row}: give engine code for the row, not a comment")
             continue
         if e.verdict == "fix":
+            if _CHAIN_ROW.match(row.source) and any(says_other_side(r.source) for r in rows if not r.synthetic):
+                reasons.append(f"Row {e.row}: this is the foundation chain of an oval, and a later row goes round it and "
+                               "back along its other side, so its length cannot be changed. Look at the counts of the "
+                               "rows that follow it")
+                continue
             if e.row in settled:
                 reasons.append(f"Row {e.row}: it already makes its own stated count and everything up to it works, so "
                                "it is not the mistake and cannot be changed. If a whole round seems to be missing "
@@ -369,6 +380,10 @@ def _judge_rows(engine: Engine, text: str, original: list[RowResult], rows: list
             if problem:
                 reasons[key] = f"Row {e.row}: your code is not allowed as a reading of the row: {problem}"
                 continue
+        problem = oval_problem(engine, "\n".join(r.code for r in rows[:pos] if r.code), row.code, row.source)
+        if problem:
+            reasons[key] = f"Row {e.row}: your code is not allowed: {problem}"
+            continue
         english = _english(engine, rows, pos)
         if all(line.startswith("UNSUPPORTED") for line in english):
             reasons[key] = f"Row {e.row}: the code can't be put into words, so it couldn't be compared with the text"

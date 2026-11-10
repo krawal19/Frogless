@@ -5,7 +5,7 @@ still flagged. Without a model, flagged rows stay flagged.
 
 Model answers vary from run to run, so a flagged row is translated `samples` times (3 by default; the translator's
 "samples" in config/models.json) and code picks the answer (_referee): answers the engine rejects (or that start the
-foundation row in the wrong chain) are dropped, then an answer whose row count fits the stated count wins, then the
+foundation row in the wrong chain, or an oval written as a straight run) are dropped, then an answer whose row count fits the stated count wins, then the
 answer most attempts agree on, and only then does the faithfulness check look at the pick (the next best if it is a
 mismatch). One exception comes first: when the rules translator's literal code misses the stated count but makes it
 if the turning chain counts, that literal code is kept, never a model answer that only fits by changing the stitches.
@@ -22,7 +22,7 @@ from ..engine import Engine
 from ..models.client import ROOT, chat, load_config
 from ..patterns.stated import stated_count
 from .gate import gate_translation, row_counts
-from .guards import hook_problem
+from .guards import hook_problem, oval_problem
 from .report import RowResult
 
 ROLE = "translator"
@@ -195,8 +195,9 @@ def _referee(engine: Engine, text: str, rows: list[RowResult], i: int, candidate
     accepted = [(k, c) for k, c in ok if judged[k][0]]
     dropped = len(ok) - len(accepted)
     before, lines = "\n".join(r.code for r in rows[:i] if r.code), [r.source for r in rows if not r.synthetic]
-    valid = [(k, c) for k, c in accepted if not hook_problem(engine, before, c.code, rows[i].source, lines)]
-    wrong_start = len(accepted) - len(valid) if valid else 0
+    valid = [(k, c) for k, c in accepted if not hook_problem(engine, before, c.code, rows[i].source, lines)
+             and not oval_problem(engine, before, c.code, rows[i].source)]
+    wrong_start = len(accepted) - len(valid) if valid else 0  # (hook or oval)
     pool = valid or accepted or ok  # if the engine rejects every attempt, the retry loop deals with them
     literal = rows[i].literal
     keep_literal = bool(literal) and _evaluate(engine, rows, i, literal)[0] and _only_if_turning_chain_counts(
@@ -222,7 +223,7 @@ def _referee(engine: Engine, text: str, rows: list[RowResult], i: int, candidate
         if dropped:
             why.append(f"{dropped} rejected by the engine")
         if wrong_start:
-            why.append(f"{wrong_start} started in the wrong chain from the hook")
+            why.append(f"{wrong_start} started in the wrong chain from the hook or ignored the other side of the chain")
         if tail:
             why.append(tail)
         return replace(c, note=f"{PICK_NOTE} {k} of {n}" + (": " + ", ".join(why) if why else ""))

@@ -20,6 +20,8 @@ and the English templates below are the parts written here.
 import re
 from dataclasses import dataclass, field, replace
 
+from .oval import label_foundation
+
 BASE_STITCHES = {"sc", "hdc", "dc", "tr", "dtr", "trtr"}
 _WORDS = {"ch", "sk", "turn", "ring", "tie_up"}
 _TOKEN_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
@@ -68,6 +70,7 @@ class _Ctx:
     reg: dict  # label -> (kind, size), kind is "st", "space" or "group"
     bare: bool = False  # inside a group worked into one place: no "in next st"
     unit: str = "st"  # "ch" on the row worked along a foundation chain
+    chain_label: str = ""  # label on the first chain of the foundation chain: a group worked into it is the way back
 
 
 # ---------------------------------------------------------------- parsing
@@ -407,6 +410,9 @@ def _placed_group_text(g: Group, ctx):
     """(...)@place: every stitch in the group goes into that one place."""
     if ctx.bare:
         raise _Unsupported("nested placed group")
+    if ctx.chain_label and g.attach == ctx.chain_label and not g.labels:
+        back = replace(ctx, chain_label="")  # the other side of the foundation chain, stitch by stitch
+        return f"rotate, then work along the other side of the foundation chain ({_items_text(g.items, back)})"
     only = g.items[0] if len(g.items) == 1 else None
     if _is_plain(only) and only.name not in _WORDS:
         text = _atom_text(replace(only, attach=g.attach), ctx)  # (6sc)@R0 -> 6 sc in magic ring
@@ -450,7 +456,7 @@ def _has_turn(items):
 
 def describe_code(code: str) -> list[str]:
     """One English sentence per code line; 'UNSUPPORTED: <code>' for what we can't say."""
-    lines = [l for l in _canon(code).splitlines() if l.strip() and not l.lstrip().startswith("#")]
+    lines = [l for l in label_foundation(_canon(code)).splitlines() if l.strip() and not l.lstrip().startswith("#")]
     parsed = []
     for raw in lines:
         try:
@@ -460,9 +466,8 @@ def describe_code(code: str) -> list[str]:
 
     # Rows (turned, built on a foundation chain) versus rounds (worked around).
     first = parsed[0][1] if parsed else None
-    foundation = (
-        first is not None and _is_atom(first, "ch") and not first[0].labels and not first[0].attach and len(parsed) > 1
-    )
+    chains, chain_label = _foundation(first) if len(parsed) > 1 else (0, "")
+    foundation = chains > 0
     rows_mode = foundation or any(items and _has_turn(items) for _, items in parsed)
     if any(items and _uses_ring(items) for _, items in parsed):
         rows_mode = False
@@ -487,11 +492,11 @@ def describe_code(code: str) -> list[str]:
                 out.append("Turn.")  # a bare turn line is not a row of its own
                 continue
             if idx == 0 and foundation:
-                out.append(f"Ch {items[0].n}.")
+                out.append(f"Ch {chains}.")
                 continue
             ctx = _Ctx(reg)
             if idx == 1 and foundation:
-                body = _foundation_row_text(parsed[0][1][0].n, items, replace(ctx, unit="ch"))
+                body = _foundation_row_text(chains, items, replace(ctx, unit="ch", chain_label=chain_label))
             else:
                 body = _round_text(items, ctx) if word == "Round" else _items_text(items, ctx)
             number += 1
@@ -500,6 +505,19 @@ def describe_code(code: str) -> list[str]:
             number += 1
             out.append(unsupported)
     return out
+
+
+def _foundation(items) -> tuple[int, str]:
+    """(chains, label) of a line that is a foundation chain, (0, "") if it is not. The label is the one on its first
+    chain (`ch.A,12ch` is 13 chains), where an oval's way back along the other side is attached."""
+    if items is None:
+        return 0, ""
+    if _is_atom(items, "ch") and not items[0].labels and not items[0].attach:
+        return items[0].n, ""
+    if (len(items) == 2 and all(_is_atom([i], "ch") and not i.attach for i in items) and len(items[0].labels) == 1
+            and items[0].n == 1 and not items[1].labels):
+        return 1 + items[1].n, items[0].labels[0]
+    return 0, ""
 
 
 def _round_text(items, ctx):

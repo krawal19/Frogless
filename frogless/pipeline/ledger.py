@@ -24,6 +24,7 @@ from pathlib import Path
 
 from ..engine import Engine
 from ..models.client import ROOT
+from ..patterns.placement import says_other_side
 from ..patterns.stated import stated_count
 from .report import RowResult
 from .translate import ask_cached
@@ -111,6 +112,8 @@ def _uses_fit(source: str, uses: int, below: list[int]) -> bool:
         return True
     if uses == 0:  # a fresh start: a magic ring or a foundation chain
         return bool(_FRESH.match(_LABEL.sub("", source.strip(), count=1)))
+    if says_other_side(source) and uses <= 2 * max(below):  # round the end of a chain and back along its other side
+        return True
     if uses in [2 * b for b in below]:  # two pieces joined together
         return bool(_JOINS.search(source))
     if uses < max(below):  # stitches left unworked on purpose

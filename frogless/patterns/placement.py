@@ -47,6 +47,20 @@ def states_placement(source: str) -> bool:
     return bool(_PLACED.search(source))
 
 
+# a row that goes round the end of a foundation chain and back along its other side (an oval)
+_OTHER_SIDE = re.compile(
+    r"\brotat(?:e|ing)\b"
+    r"|\b(?:other|opposite|underside|under\s*side)\s+(?:side|loops?)\s+of\s+(?:the\s+)?(?:foundation\s+)?(?:ch|chain)"
+    r"|\b(?:along|on|down|back\s+along)\s+the\s+(?:other|opposite)\s+side\b"
+    r"|\bother\s+side\s+of\s+(?:the\s+)?(?:foundation|starting|base)\b",
+    re.IGNORECASE)
+
+
+def says_other_side(source: str) -> bool:
+    """True when the row says to rotate or to work along the other side of the foundation chain (an oval)."""
+    return bool(_OTHER_SIDE.search(source))
+
+
 def bare_numbers(source: str, family: str) -> set[int]:
     """The numbers the text has written right beside the stitch itself ("7dc", "7 dc") for `family`, as the length of
     a side or group, and not as a place to work ("dc in next 7 sts", "in each of 7 dc")."""

@@ -305,3 +305,14 @@ def test_granny_square_chain_ring_no_hint():
     text = "Granny square. Ch 4, sl st to form a ring."
     assert check_chain_ring_start(BALL, text, []) == []
     assert "chain_ring_start" not in kinds(check_shape(BALL, from_ring=True, flat=True, text=text))
+
+
+def test_an_oval_gets_no_even_spacing_hint():
+    from frogless.engine import get_engine
+    from frogless.pipeline.shape import check_shape
+
+    oval = ("Ch 13\nR1: sc in 2nd ch from hook, sc in next 10 ch, 3 sc in last ch, rotate, sc in next 10 ch, "
+            "2 sc in last ch (26)\nR2: inc, 10 sc, inc x3, 10 sc, inc x2 (32)")
+    rows = get_engine().check("13ch.A\nsk,11sc,sc3inc,(10sc,sc2inc)@A\nsc2inc,10sc,3*[sc2inc],10sc,2*[sc2inc]").rows
+    assert not [f for f in check_shape(rows, oval=True, text=oval) if f.kind.startswith("uneven_") and "bunched" in f.message]
+    assert [f for f in check_shape(rows, text=oval) if "bunched" in f.message]  # without the flag the hint shows

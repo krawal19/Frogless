@@ -334,3 +334,13 @@ def test_shipped_examples_are_ours_and_demo_comes_first():
         "Pattern A", "Pattern B (A with Frogless's corrections)", "Pattern C"]
     assert found[0]["group"] == "demo" and {e["group"] for e in found} == {"demo", "general"}
     assert all("external_patterns" not in str(folder) for _, folder in api.EXAMPLE_DIRS)
+
+
+def test_a_paste_with_several_pieces_shows_one_labelled_result_per_piece(monkeypatch):
+    client = _client(monkeypatch)
+    text = "BODY\nR1 6 sc in MR [6]\nR2 inc x6 [12] - stuff, pull closed\nARMS x2\nR1 6 sc in MR [6]"
+    body = client.post("/api/check?wait=1", json={"text": text}).json()
+    assert body["sizes"] == 2 and [r["label"] for r in body["results"]] == ["BODY", "ARMS x2"]
+    assert body["results"][0]["prose"] == ["stuff, pull closed"]
+    assert any(b["tone"] == "grey" for b in body["results"][0]["note_blocks"])
+    assert body["results"][1]["prose"] == []

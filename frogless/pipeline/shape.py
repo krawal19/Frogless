@@ -78,9 +78,10 @@ def starts_from_ring(text: str) -> bool:
 
 
 def check_shape(rows: list[RowInfo], from_ring: bool = False, flat: bool = False,
-                text: str = "") -> list[ShapeFinding]:
+                text: str = "", oval: bool = False) -> list[ShapeFinding]:
     """Run every shape check. from_ring says the first row is a round worked into a ring; flat says
-    the piece is meant to lie flat. Growth that isn't flat is only a warning for a flat piece: in a
+    the piece is meant to lie flat; oval says it is worked round both sides of a chain, where the increases
+    belong at the two ends, so their spacing is not checked. Growth that isn't flat is only a warning for a flat piece: in a
     3D piece (a ball, a cone, a hat) it is the point, so it is described as information."""
     findings: list[ShapeFinding] = []
     if from_ring:
@@ -88,7 +89,8 @@ def check_shape(rows: list[RowInfo], from_ring: bool = False, flat: bool = False
         if not flat:
             growth = _describe_growth(growth)
         findings += growth
-    findings += check_even_spacing(rows, cyclic=from_ring)
+    if not oval:
+        findings += check_even_spacing(rows, cyclic=from_ring)
     findings += check_polygon(rows)
     findings += check_flat_rows(rows)
     if from_ring:
@@ -470,6 +472,8 @@ def check_flat_rows(rows: list[RowInfo]) -> list[ShapeFinding]:
     findings: list[ShapeFinding] = []
     for prev, row in zip(rows, rows[1:]):
         if not prev.stitches or not row.stitches or _has_inner_chain(prev) or _has_inner_chain(row):
+            continue
+        if _count(prev) == 0:  # worked into a bare chain (or both sides of it): the engine checks how many it uses
             continue
         explained = row.overflow - row.unworked
         landed: dict[tuple, int] = {}
